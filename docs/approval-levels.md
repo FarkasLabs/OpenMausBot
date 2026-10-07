@@ -4,8 +4,10 @@ Approval levels belong to a bot and apply to its next provider turn, including
 when that provider resumes an existing native thread. Each level is one of the
 provider's own permission modes, passed through. OpenMausBot does not judge an
 action itself: there is no app-side allowlist, classifier, or pattern rule. A
-native tool request that reaches you is one the provider left for you. In Full
-Access, OMB also applies its own configuration tools without another approval.
+native tool request that reaches you is one the provider left for you. Full
+access and YOLO also apply OpenMausBot configuration tools without another
+approval. Workspace YOLO is a separate server policy that overrides saved
+conversation levels while enabled.
 
 | Level | Behavior |
 | --- | --- |
@@ -14,6 +16,7 @@ Access, OMB also applies its own configuration tools without another approval.
 | **Approve for me** | Uses the provider's automatic review on Codex, Claude, Cursor, and Grok to approve routine actions and ask about others. Providers without an equivalent fall back to asking. |
 | **Full access** | Enables the provider's permissive mode for commands, edits, and selected-computer actions, including potentially destructive or sensitive work. Residual native permission prompts are answered for you. OMB profile changes, routine actions, team setup, bot deletion, and enabled skill authoring apply without a second approval. Peer-review prompts are skipped within the bot's authorized scope. Delegation uses the receiving bot's setting, never the sender's — except from a Chief of Staff, whose level flows down (below). Actual questions and missing credentials still need your input. |
 | **Custom (`config.toml`)** | Codex only. OpenMausBot reads and reapplies the effective approval and sandbox settings from your Codex configuration. |
+| **YOLO mode** | No action approvals across the bot's existing and future threads, delegated work, and unattended routines. Uses native Full semantics, plus Pi's `--approve` mapping and explicit OpenMausBot extension. Own profile/SOUL, skills, settings, MCP definitions, and routines apply directly. Questions, sign-in, selected tools, team access, and operating-system permissions still apply. |
 
 Full access is an elevated-risk standing approval. Full and Custom can only be
 enabled from a packaged local desktop app, where the choice crosses a private
@@ -26,9 +29,11 @@ or grant another bot access to a different workspace.
 
 The effective setting belongs to the source conversation. An existing Ask
 thread remains Ask even if the bot default is Full; a Full thread works without
-these extra prompts even if the bot default is Ask. Ask, Auto, and Custom retain
-their existing OMB configuration review cards. Full actions return an applied
-result and leave a settled receipt, so the bot continues in the same turn.
+these extra prompts even if the bot default is Ask. Existing self-change rules
+remain at every level: own routines, skills, profile, and default model changes
+can already apply directly. Other changes keep their existing reviews unless
+Full access or YOLO applies. Direct actions return an applied result and leave a
+settled receipt, so the bot continues in the same turn.
 Invalid input, unavailable services, or failed writes return errors, not a
 request to approve again. An expired native permission request is not turned
 into another Allow/Deny card.
@@ -37,6 +42,30 @@ A turn a webhook, a routine, or another bot started runs in the bot's level
 like any other turn. The decision log records that nobody was at the keyboard
 when such a turn asked.
 
+## Workspace and per-bot YOLO
+
+YOLO is off by default. The workspace switch uses existing workspace owner/admin
+authority, not Advanced display mode or per-user bot ownership. It requires a
+confirmed authenticated admin session or the packaged local desktop owner's
+private capability. Anonymous loopback access and turn-scoped bot tokens cannot
+enable it. Full and Custom retain their existing private desktop grant path.
+
+Workspace YOLO is saved on the server and applies to every existing and future
+bot and thread, including headless routine execution after a restart. Saved
+per-bot and per-thread modes are not rewritten. Turning the workspace switch
+off restores those saved modes, including a separately enabled per-bot YOLO.
+Guest-driven My Cloud conversations retain their existing Ask boundary.
+
+Per-bot YOLO overrides that bot's existing and future thread levels, so an old
+Ask sibling also runs without action approvals. Choosing Ask disables the
+bot-wide grant and resets those threads to Ask. Active turns must stop before
+either setting changes. Unsupported engines are refused when enabling YOLO.
+These settings control application approvals; they do not sandbox a process
+that already has access to server files or admin credentials.
+
+For role checks, remote pairing, enable/disable steps, and Pi-specific behavior,
+see [Enable YOLO for a workspace](yolo.md).
+
 ### A Chief of Staff's level covers the work it delegates
 
 Approvals were where a team's owner spent their day: every teammate a Chief
@@ -44,7 +73,7 @@ brought in started at "Ask for approval", so the owner either answered a card
 every few minutes or switched each new thread by hand. So **a Chief of Staff's
 level flows down**. Work it delegates — `coordinate_bots` into a teammate's
 thread, and `delegate_bot` — starts at the level of the Chief conversation it
-came from: Auto-accept edits, Approve for me, or Full access. The delegated
+came from: Auto-accept edits, Approve for me, Full access, or YOLO. The delegated
 thread is switched to that level, keeps it, and opens with a line saying so
 ("Approve for me — delegated by Clive, a Chief of Staff on Approve for me");
 you can still change it in that thread. Work a Chief hands out inside a room
@@ -72,7 +101,7 @@ offered for computer control or for a sandbox change.
 Auto-accept edits and Ask card whatever the provider asks about. Approve for
 me cards whatever the provider's reviewer leaves for you, with the note "The
 provider requires your approval for this action." A sandbox widening is held
-in every level but Full.
+in every level but Full and YOLO.
 
 ### When the native reviewer never starts
 
@@ -107,7 +136,7 @@ teammate can delegate work to this bot without downgrading its explicit Auto
 ## Asking you questions
 
 Every engine can stop and ask, and no approval level ever answers a question
-for you: Ask, Auto-accept edits, Auto, and Full access all leave a question
+for you: Ask, Auto-accept edits, Auto, Full access, Custom, and YOLO leave a question
 card for a person. What differs per engine is only how the ask travels:
 
 | Engine family | How an ask travels | Multiple questions at once |
@@ -167,6 +196,10 @@ provider's session. Its quieter default is Full access; OpenMausBot keeps its
 own opt-in desktop confirmation and Ask as the default.
 
 ## Verification for contributors
+
+The [YOLO workflow recipe](verification/yolo.md) verifies workspace persistence,
+Pi's actual MCP extension, own profile/SOUL and MCP changes, scheduled headless
+routine execution, authenticated opt-in, and restoration of implicit Ask.
 
 The [Full Access workflow recipe](verification/full-access.md) tests immediate
 profile, routine, team, skill, and peer actions through the real server and MCP
