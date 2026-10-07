@@ -23,6 +23,7 @@ const APPROVAL_MODE_KEYS: ReadonlyArray<{
   { mode: "auto", labelKey: "approvalMode.auto.label", chipKey: "approvalMode.auto.chip", descriptionKey: "approvalMode.auto.desc", Icon: ShieldCheck },
   { mode: "full", labelKey: "approvalMode.full.label", chipKey: "approvalMode.full.chip", descriptionKey: "approvalMode.full.desc", Icon: ShieldAlert },
   { mode: "custom", labelKey: "approvalMode.custom.label", chipKey: "approvalMode.custom.chip", descriptionKey: "approvalMode.custom.desc", Icon: Settings },
+  { mode: "yolo", labelKey: "approvalMode.yolo.label", chipKey: "approvalMode.yolo.chip", descriptionKey: "approvalMode.yolo.desc", Icon: ShieldAlert },
 ];
 
 export interface ApprovalModeOption {
@@ -45,13 +46,13 @@ export function approvalModeOptions(): ApprovalModeOption[] {
   }));
 }
 
-export function approvalModeOptionsFor(driverKind: string, trustedModesAvailable = true) {
+export function approvalModeOptionsFor(driverKind: string, trustedModesAvailable = true, allowYolo = false) {
   return approvalModeOptions()
     .filter((option) => supportsApprovalMode(driverKind, option.mode)
       // Antigravity has no native reviewer. Offer its explicit full-access
       // grant as Auto instead of a second choice that actually behaves as Ask.
       && (driverKind !== "antigravityAgent" || option.mode !== "auto")
-      && (trustedModesAvailable || option.mode === "ask" || option.mode === "edits" || option.mode === "auto"))
+      && (option.mode === "yolo" ? allowYolo : trustedModesAvailable || option.mode === "ask" || option.mode === "edits" || option.mode === "auto"))
     .map((option) => {
       if (driverKind === "antigravityAgent" && option.mode === "full") {
         return {
@@ -92,9 +93,11 @@ export function ApprovalModeSelector({
   menuDirection = "up",
   wide = false,
   disabled = false,
+  disabledReason,
   trustedModesAvailable = true,
   trustedModesNotice,
   onManageCommandAllowlist,
+  allowYolo = false,
 }: {
   approvalMode?: ApprovalMode;
   autoApprove?: boolean;
@@ -105,9 +108,11 @@ export function ApprovalModeSelector({
   menuDirection?: "up" | "down";
   wide?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   trustedModesAvailable?: boolean;
   trustedModesNotice?: string;
   onManageCommandAllowlist?: () => void;
+  allowYolo?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const motion = useMenuMotion(open);
@@ -121,7 +126,8 @@ export function ApprovalModeSelector({
   const current = approvalModeOptionsFor(driverKind).find((option) => option.mode === mode)
     ?? allOptions.find((option) => option.mode === mode)
     ?? allOptions[0];
-  const visibleOptions = approvalModeOptionsFor(driverKind, trustedModesAvailable);
+  const visibleOptions = approvalModeOptionsFor(driverKind, trustedModesAvailable, allowYolo)
+    .filter(option => mode !== "yolo" || option.mode === "ask" || option.mode === "yolo");
   const requiresLocalDesktop = approvalModeSelectionRequiresLocalDesktop(
     mode,
     trustedModesAvailable,
@@ -171,7 +177,7 @@ export function ApprovalModeSelector({
         aria-expanded={open}
         aria-label={t("approvalMode.triggerAria", { mode: current.label, provider: providerName })}
         disabled={triggerDisabled}
-        title={disabled ? t("approvalMode.busy") : wide ? undefined : current.chip}
+        title={disabled ? disabledReason ?? t("approvalMode.busy") : wide ? undefined : current.chip}
         onClick={() => setOpen((value) => !value)}
         className={cn(
           wide
@@ -228,7 +234,7 @@ export function ApprovalModeSelector({
                     aria-checked={selected}
                     disabled={modesDisabled}
                     title={
-                      disabled ? t("approvalMode.busy") : requiresLocalDesktop ? t("approvalMode.customLocalOnly") : undefined
+                      disabled ? disabledReason ?? t("approvalMode.busy") : requiresLocalDesktop ? t("approvalMode.customLocalOnly") : undefined
                     }
                     onClick={() => {
                       if (modesDisabled) return;

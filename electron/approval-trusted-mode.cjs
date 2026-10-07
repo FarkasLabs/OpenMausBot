@@ -2,7 +2,7 @@
 
 const BOT_ID = /^[A-Za-z0-9_-]{1,120}$/;
 const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const APPROVAL_MODES = new Set(["ask", "edits", "auto", "full", "custom"]);
+const APPROVAL_MODES = new Set(["ask", "edits", "auto", "full", "custom", "yolo"]);
 
 function plainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
@@ -17,9 +17,10 @@ function trustedApprovalModeRequest(requestId, botId, mode, acknowledgeLocalAuto
   }
   if (!APPROVAL_MODES.has(mode)) throw new Error("invalid trusted approval mode");
   if (typeof allThreads !== "boolean" || (allThreads && (threadId !== undefined || threadOnly ||
-    modelSelection !== undefined || updateBotDefault !== undefined || (mode !== "full" && mode !== "ask")))) {
+    modelSelection !== undefined || updateBotDefault !== undefined || (mode !== "full" && mode !== "yolo" && mode !== "ask")))) {
     throw new Error("invalid all-threads approval selection");
   }
+  if (mode === "yolo" && !allThreads) throw new Error("YOLO requires a bot-wide grant");
   if (typeof threadOnly !== "boolean" || (threadOnly && (threadId === undefined || modelSelection !== undefined || updateBotDefault !== undefined))) {
     throw new Error("invalid thread-only approval selection");
   }
@@ -61,7 +62,7 @@ function trustedApprovalModeConfirmation(requestId, botId, mode) {
   if (typeof botId !== "string" || !BOT_ID.test(botId)) {
     throw new Error("invalid bot id for trusted approval-mode confirmation");
   }
-  if (mode !== "full" && mode !== "custom") {
+  if (mode !== "full" && mode !== "custom" && mode !== "yolo") {
     throw new Error("only elevated approval modes require confirmation");
   }
   return {
@@ -204,7 +205,7 @@ function createTrustedApprovalModeCoordinator({ randomId, timeoutMs = 10_000 } =
    * selection wins and therefore suppresses this older compensation. */
   function failAmbiguously(requestId, error) {
     settle(requestId, (waiting) => {
-      const elevated = waiting.mode === "full" || waiting.mode === "custom";
+      const elevated = waiting.mode === "full" || waiting.mode === "custom" || waiting.mode === "yolo";
       const isLatest = latestRequestByBot.get(waiting.botId) === requestId;
       if (!waiting.posted || !elevated || !isLatest) {
         waiting.reject(error);
@@ -332,7 +333,7 @@ function createTrustedApprovalModeCoordinator({ randomId, timeoutMs = 10_000 } =
       settle(result.requestId, ({ reject }) => reject(new Error(result.error)));
       return true;
     }
-    const resultMode = waiting.threadOnly && (waiting.mode === "full" || waiting.mode === "custom")
+    const resultMode = waiting.threadOnly && (waiting.mode === "full" || waiting.mode === "custom" || waiting.mode === "yolo")
       ? waiting.mode // Inert prepare reply; validate the actual thread at commit.
       : waiting.threadOnly ? result.bot.tasks?.find(task => task.threadId === waiting.threadId)?.approvalMode
       : waiting.modelThreadId
@@ -342,7 +343,7 @@ function createTrustedApprovalModeCoordinator({ randomId, timeoutMs = 10_000 } =
       failAmbiguously(result.requestId, new Error("Approval-mode result did not match the request"));
       return true;
     }
-    if (waiting.mode === "full" || waiting.mode === "custom") {
+    if (waiting.mode === "full" || waiting.mode === "custom" || waiting.mode === "yolo") {
       try {
         // The server keeps this selection executable as Ask while it records
         // confirmation. Do not resolve until its correlated acknowledgement

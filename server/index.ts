@@ -480,6 +480,9 @@ import { createScreenFrameSource, type ScreenCapture } from "./screen-frame-sour
 import { screenFrameHash, screenSurfaceForTool, screenTouchingTool, settledFrameIsNews } from "./screen-frame-gate.ts";
 import { asSchedule, RoutineRequestService } from "./routine-requests.ts";
 import { directApply, UNDO_STALE, type DirectApply } from "./direct-apply.ts";
+import { BotMcpStore } from "./bot-yolo-tools.ts";
+import { createYoloRoutes } from "./routes/yolo.ts";
+import { createOwnYoloRoutes } from "./routes/yolo-owned-tools.ts";
 import { createOptionsCard } from "./options-card.ts";
 import { buildBotOverview, type BotOverview, connectedAppsFacts } from "./bot-overview.ts";
 import { ProfileRequestService } from "./profile-requests.ts";
@@ -627,7 +630,7 @@ import {
 // Keep these two last: a route module may import any server module, and
 // loading the table after everything above leaves module start-up order as is.
 import { json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
-import { ROUTES, dispatchRoutes } from "./routes/table.ts";
+import { PASS, ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
@@ -2486,6 +2489,7 @@ function agentsIntegration(
       OMB_ROOM_TURN: roomCoordination ? "1" : "0",
       OMB_OWN_THREAD_CREATION: ownThreadCreation ? "1" : "0",
       OMB_SKILL_AUTHORING_ENABLED: skillAuthoring ? "1" : "0",
+      OMB_YOLO_ENABLED: sourceApprovalMode(botId, threadId) === "yolo" ? "1" : "0",
       OMB_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       // The shared-computer tools are advertised only while the workspace
       // gate is on; the routes behind them refuse regardless.
@@ -3394,6 +3398,7 @@ function checkedModelSelection(
     model: value.model.trim(),
   };
   if (hostedModels && !hostedModels.allows(selection)) return { ok: false, status: 400, error: hostedModels.error() };
+  if (cfg.yolo === true && !supportsApprovalMode(selection, "yolo")) return { ok: false, status: 400, error: "Select an engine that supports YOLO while workspace YOLO is enabled" };
   if (value.effort !== undefined) {
     if (!isEffortLevel(value.effort)) {
       return { ok: false, status: 400, error: `effort "${String(value.effort)}" is not recognized` };
@@ -3923,7 +3928,7 @@ function previewSystemPrompt(bot: BotRecord) {
     teamAvailabilityPart(agentsMounted && coordination ? peers : []),
     { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: agentsMounted, fileTools: Boolean(privateWorkspace), enabled: bot.memoryEnabled !== false }) },
     { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined) : "" },
-  ]);
+  ], approvalModeForTurn(bot));
   const totalBytes = built.sections.reduce((n, s) => n + s.bytes, 0);
   return {
     sections: built.sections,
@@ -4021,7 +4026,7 @@ const approvalModeForTurn = (bot: BotRecord, peerInitiated = false, threadId = b
   // own level. Judged by the conversation the turn runs in (a room's, for a
   // room turn), never by whichever of the bot's conversations is active.
   if (cloudGuestDriven(threadId)) return "ask";
-  const mode = approvalModeForOrigin(approvalModeFor(bot), { peerInitiated });
+  const mode = cfg.yolo === true ? "yolo" : approvalModeForOrigin(approvalModeFor(bot), { peerInitiated });
   if (!supportsApprovalMode(bot.modelSelection, mode)) {
     return "ask";
   }
@@ -4039,7 +4044,8 @@ function sourceApprovalMode(botId: string, threadId: string): ApprovalMode {
 }
 
 function fullAccessForSource(botId: string, threadId: string): boolean {
-  return sourceApprovalMode(botId, threadId) === "full";
+  const mode = sourceApprovalMode(botId, threadId);
+  return mode === "full" || mode === "yolo";
 }
 
 /** On a Cloud home a turn a guest drives keeps a card for every change,
@@ -4154,7 +4160,7 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     const botId = typeof message.botId === "string" && /^[\w-]{1,128}$/.test(message.botId)
       ? message.botId
       : null;
-    const mode = message.mode === "full" || message.mode === "custom" ? message.mode : null;
+    const mode = message.mode === "full" || message.mode === "custom" || message.mode === "yolo" ? message.mode : null;
     if (!requestId) return true;
     if (!botId || !mode) return true;
     const bot = store.bot(botId);
@@ -4167,7 +4173,7 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
       threadCanReceiveGrant(bot) &&
       grantSupported(bot, mode)
     ) {
-      if (bot.approvalGrant.allThreads && mode === "full") {
+      if (bot.approvalGrant.allThreads && (mode === "full" || mode === "yolo")) {
         store.setAllThreadApprovalMode(botId, mode);
       } else if (bot.approvalGrant.refreshPermissions && bot.approvalGrant.threadId) {
         store.refreshTaskPermissions(botId, bot.approvalGrant.threadId);
@@ -4191,7 +4197,7 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     const botId = typeof message.botId === "string" && /^[\w-]{1,128}$/.test(message.botId)
       ? message.botId
       : null;
-    const mode = message.mode === "full" || message.mode === "custom" ? message.mode : null;
+    const mode = message.mode === "full" || message.mode === "custom" || message.mode === "yolo" ? message.mode : null;
     if (!requestId) return true;
     const confirm = (ok: boolean, error?: string) => {
       postDesktopPrivateMessage({
@@ -4238,7 +4244,7 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     const botId = typeof message.botId === "string" && /^[\w-]{1,128}$/.test(message.botId)
       ? message.botId
       : null;
-    const mode = message.mode === "full" || message.mode === "custom" ? message.mode : null;
+    const mode = message.mode === "full" || message.mode === "custom" || message.mode === "yolo" ? message.mode : null;
     if (!requestId) return true;
     const activate = (ok: boolean, error?: string) => {
       postDesktopPrivateMessage({
@@ -4285,7 +4291,7 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     const botId = typeof message.botId === "string" && /^[\w-]{1,128}$/.test(message.botId)
       ? message.botId
       : null;
-    const mode = message.mode === "full" || message.mode === "custom" ? message.mode : null;
+    const mode = message.mode === "full" || message.mode === "custom" || message.mode === "yolo" ? message.mode : null;
     if (!requestId) return true;
     const finalize = (ok: boolean, error?: string) => {
       postDesktopPrivateMessage({
@@ -4353,12 +4359,20 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     return true;
   }
   const currentMode = approvalModeFor(existing);
+  if (currentMode === "yolo" && !(message.allThreads === true && (mode === "yolo" || mode === "ask"))) {
+    respond({ ok: false, error: "Disable YOLO for the whole bot by choosing Ask first" });
+    return true;
+  }
   const threadId = message.threadId;
   if (message.allThreads !== undefined && (typeof message.allThreads !== "boolean" ||
     (message.allThreads && (threadId !== undefined || message.threadOnly === true ||
       message.modelSelection !== undefined || message.updateBotDefault !== undefined ||
-      (mode !== "full" && mode !== "ask"))))) {
+      (mode !== "full" && mode !== "yolo" && mode !== "ask"))))) {
     respond({ ok: false, error: "Invalid all-threads approval scope" });
+    return true;
+  }
+  if (mode === "yolo" && message.allThreads !== true) {
+    respond({ ok: false, error: "YOLO must be enabled for the whole bot, not one thread" });
     return true;
   }
   if (message.allThreads === true && mode === "ask") {
@@ -4499,7 +4513,7 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
   const updated = store.patchBot(botId, {
     approvalMode: mode,
     autoApprove: mode === "auto",
-    approvalGrant: mode === "full" || mode === "custom"
+    approvalGrant: mode === "full" || mode === "custom" || mode === "yolo"
       ? { requestId, mode, phase: "prepared", ...(typeof threadId === "string" ? { threadId } : {}), ...(message.allThreads === true ? { allThreads: true } : {}) }
       : undefined,
   });
@@ -9943,7 +9957,7 @@ async function startTurn(
       // the setup prompt block, and the peer-comms integration below: a driver
       // that never mounts agent tools (or a turn already at the comms-depth cap)
       // must not be steered into — or told about — tools it cannot call.
-      const skillAuthoring = skillAuthoringEnabled(cfg) && agentsMounted;
+      const skillAuthoring = (skillAuthoringEnabled(cfg) || approvalModeForTurn(bot, false, threadId) === "yolo") && agentsMounted;
       // Setup mode's turn-text rewrite (parseSetupCommand/expandSetupTurnText)
       // must not run ahead of a system prompt that can't explain it: a driver
       // without agent tools sees the user's literal "/setup ..." message. The
@@ -10754,7 +10768,7 @@ async function startTurn(
         { id: "playbooks", label: "Playbooks", text: packagePlaybooks },
         { id: "webhook", label: "Webhook provenance", text: opts?.automationSource === "webhook" ? WEBHOOK_PROMPT : "" },
         { id: "mentions", label: "Mentions", text: boundedCoordination && tagged.length ? `The user named these existing teammates: ${tagged.map(b => `${peerName(b.name)} (${b.id})`).join(", ")}. Use coordinate_bots when their contribution is needed; do not substitute native helper agents for these bots.` : mentionPrompt(tagged) },
-      ]);
+      ], approvalModeForTurn(bot, commsDepth > 0, threadId));
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
       // Automatic recall rides in front of THIS turn's message, never in the
       // system prompt: the volatile half is re-sent whole whenever any part of
@@ -10791,7 +10805,8 @@ async function startTurn(
           (opts?.automaticRecoveryIndex ?? 0) < ((liveBot ?? bot).fallback?.length || (cfg.automaticRecovery.backup ? 1 : 0)),
         text: withRecalled(recalled, dispatchContext.turnText),
         images: turnImages,
-        approvalMode: approvalModeForTurn(bot, commsDepth > 0, threadId),
+        approvalMode: approvalModeForTurn(bot, commsDepth > 0, threadId) === "yolo" ? "full" : approvalModeForTurn(bot, commsDepth > 0, threadId),
+        yolo: approvalModeForTurn(bot, commsDepth > 0, threadId) === "yolo",
         toolScope,
         ...(guestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
         model,
@@ -12640,7 +12655,7 @@ async function runGroupMemberTurn(
   assertModelVariantSupported(preparedSelection, instance.adapter.capabilities);
   const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
   const skillAuthoring =
-    skillAuthoringEnabled(cfg) &&
+    (skillAuthoringEnabled(cfg) || approvalModeForTurn(bot, false, threadId) === "yolo") &&
     hop === 0 &&
     !skillAuthoringClaim.claimed &&
     !cardContinuation &&
@@ -13157,7 +13172,7 @@ async function runGroupMemberTurn(
     { id: "skills", label: "Skills index", text: workspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
     { id: "skill-instructions", label: "Skill instructions", text: renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) },
     { id: "playbooks", label: "Playbooks", text: installedPlaybookInstructions(text, bot.playbooks) },
-  ]);
+  ], roomTurnApprovalMode(readyBot, threadId, orchestration));
 
   // The engines read at start is part of setup (it learns what this engine
   // supports): wait for it before the claim below.
@@ -13276,7 +13291,8 @@ async function runGroupMemberTurn(
         botId: readyBot.id,
         text: withRecalled(roomRecalled, text),
         images: turnImages,
-        approvalMode: roomTurnApprovalMode(readyBot, threadId, orchestration),
+        approvalMode: roomTurnApprovalMode(readyBot, threadId, orchestration) === "yolo" ? "full" : roomTurnApprovalMode(readyBot, threadId, orchestration),
+        yolo: roomTurnApprovalMode(readyBot, threadId, orchestration) === "yolo",
         toolScope: toolScopeForTurn(readyBot.id),
         ...(roomGuestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
         system: roomSystem.text,
@@ -15478,6 +15494,7 @@ function configStatus() {
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     mcp: { callTimeoutMinutes: mcpCallTimeoutMinutes(cfg) },
     automaticRecovery: cfg.automaticRecovery ?? { enabled: false },
+    yolo: cfg.yolo === true,
     // absent effort = no level is sent, so clients can tell it from any level
     newBots: cfg.newBots?.effort ? { effort: cfg.newBots.effort } : {},
     threads: {
@@ -15580,8 +15597,16 @@ function mcpServerBody(body: unknown): Record<string, unknown> {
 
 /** Configured MCP servers that may reach this bot's engine. While enrolled,
  * the organisation's allow-list filters them; config.json is never changed. */
+const botMcpStore = new BotMcpStore(join(DATA_DIR, "bots"));
+const ownYoloRoutes = createOwnYoloRoutes({
+  store, mcp: botMcpStore,
+  authorized: (botId, threadId) => sourceApprovalMode(botId, threadId) === "yolo",
+  mcpRefusal: mcpPolicyRefusal,
+});
+
 function engineMcpServers(bot: BotRecord) {
-  return withoutPendingSignIn(managedPolicy.filterMcp(customMcpServers(cfg, bot.mcpServers)), mcpOAuth);
+  const own = approvalModeForTurn(bot) === "yolo" ? botMcpStore.enabled(bot.id) : {};
+  return withoutPendingSignIn(managedPolicy.filterMcp({ ...customMcpServers(cfg, bot.mcpServers), ...own }), mcpOAuth);
 }
 
 function persistMcpServers(next: Record<string, unknown>): void {
@@ -15905,6 +15930,23 @@ const cloudMoveRoutes = createCloudMoveRoutes({
 
 // Route modules (server/routes/README.md). `workspaceAccess` is assigned at
 // boot, after this line, so the dependency reads it per request.
+ROUTES.push(createYoloRoutes({
+  desktopManaged: DESKTOP_MANAGED,
+  store,
+  enabled: () => cfg.yolo === true,
+  busy: bot => bot.busy || store.tasks(bot.id).some(task => threadBusy(bot.id, task.threadId)),
+  supports: selection => supportsApprovalMode(selection, "yolo"),
+  sessionLive: id => sessions.isLive(id),
+  saveWorkspace: enabled => {
+    saveConfig({ yolo: enabled });
+    Object.assign(cfg, loadConfig());
+    const status = configStatus();
+    broadcast({ kind: "config", ...status });
+    return status;
+  },
+  wireBot,
+  announce: bot => broadcast({ kind: "bot", bot: wireBot(bot) }),
+}));
 ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 // Install statuses come from the organization library's own state, never
 // its file, so New bot cannot disagree with it. No organization: none.
@@ -18685,6 +18727,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const updated = updateChannel(room.id, patch);
         return json(res, 200, { ok: true, memberIds: updated.memberIds, memberCount: updated.memberIds.length, message: `Updated room “${updated.name}”.` });
       }
+      if (await ownYoloRoutes({ res, method, path, json, body: readInternalBody }, internalCapability) !== PASS) return;
       if (method === "POST" && path === "/api/internal/mcp-servers") {
         // Same single-flight lock as POST /api/mcp/servers: two writers must
         // not interleave a read of cfg.mcpServers with a save.
@@ -18925,7 +18968,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const opaque = connectorCalls.some(call => call.slug === "COMPOSIO_PROXY_EXECUTE");
         if (opaque && currentSender.connectorTools !== undefined) return refuseOutbound("OpenMausBot cannot verify this code against this bot's tool grants. Use a direct app tool.");
         let outboundApproved = false;
-        if (outboundTool) {
+        if (outboundTool && sourceApprovalMode(currentSender.id, internalCapability.threadId) !== "yolo") {
           const policy = currentSender.outbound ?? DEFAULT_OUTBOUND_POLICY;
           const threadId = internalCapability.threadId;
           const { app } = describeTool(outboundTool);
@@ -19029,7 +19072,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 (call.kind === "unrecognized" && fresh.connectorTools !== undefined)) {
               refuseDispatch("This bot's connected-app permissions changed. The call was not run.");
             }
-            if (outboundTool) {
+            if (outboundTool && sourceApprovalMode(fresh.id, internalCapability.threadId) === "yolo") {
+              appendDecision(DATA_DIR, { threadId: internalCapability.threadId, botId: fresh.id, botName: fresh.name,
+                tool: outboundTool, decision: "auto-approved", source: "full-access", rule: "yolo" });
+            } else if (outboundTool) {
               const policy = fresh.outbound ?? DEFAULT_OUTBOUND_POLICY;
               if (policy.policy === "allow" && !opaque) {
                 let reserved: number | null;
@@ -21033,6 +21079,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return json(res, 400, { error: "bot must be a JSON object" });
       }
+      if (body.approvalMode === "yolo") return json(res, 403, { error: "Create the bot first, then enable YOLO through the desktop confirmation" });
       const template = resolveBotCreationDefaults(cfg.newBotDefaults, body);
       const settings = template.profile;
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
@@ -21629,6 +21676,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // the permission fields decide what runs unattended, so they are
       // type-checked rather than copied through: a string alwaysAllow would
       // still answer .includes() — with substring matches, not tool names
+      if (body.approvalMode === "yolo") {
+        return json(res, 403, { error: "Enable YOLO through the desktop confirmation, not the HTTP API" });
+      }
       if (body.autoApprove !== undefined) {
         if (typeof body.autoApprove !== "boolean") return json(res, 400, { error: "autoApprove must be true or false" });
       }
@@ -21636,7 +21686,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.approvalMode !== undefined) {
         if (!isApprovalMode(body.approvalMode)) {
           return json(res, 400, {
-            error: "approvalMode must be ask, auto, full, or custom",
+            error: "approvalMode must be ask, edits, auto, full, custom, or yolo",
           });
         }
         requestedApprovalMode = body.approvalMode;
@@ -21681,9 +21731,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         });
       }
       const requiresPrivateApprovalTransition =
-        ((requestedApprovalMode === "full" || requestedApprovalMode === "custom") &&
+        ((requestedApprovalMode === "full" || requestedApprovalMode === "custom" || requestedApprovalMode === "yolo") &&
           currentApprovalMode !== requestedApprovalMode) ||
-        (currentApprovalMode === "custom" && requestedApprovalMode !== "custom");
+        ((currentApprovalMode === "custom" || currentApprovalMode === "yolo") && requestedApprovalMode !== currentApprovalMode);
       if (requiresPrivateApprovalTransition) {
         return json(res, 403, {
           error: "This approval-level change can only be made from the packaged desktop app",
@@ -23140,7 +23190,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // Full and Custom never travel over the bot-reachable HTTP surface.
         // The desktop's private channel copies those levels, and it is also
         // the only way to leave Custom.
-        if (nextMode === "full" || nextMode === "custom") {
+        if (nextMode === "full" || nextMode === "custom" || nextMode === "yolo") {
           return json(res, 403, { error: "Refresh Full or Custom access from the packaged desktop app" });
         }
         if (approvalModeFor(current) === "custom") {
@@ -23152,7 +23202,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (nextMode === "auto" && current.computer === "local" && approvalModeFor(current) !== "auto" && body.acknowledgeLocalAuto !== true) {
           return json(res, 400, { error: "Auto mode on this computer requires confirming the warning first (acknowledgeLocalAuto)" });
         }
-        const approvalRank = { ask: 0, edits: 1, auto: 2, full: 3, custom: 4 } as const;
+        const approvalRank = { ask: 0, edits: 1, auto: 2, full: 3, custom: 4, yolo: 5 } as const;
         const widensMode = approvalRank[nextMode] > approvalRank[approvalModeFor(current)];
         const nextAllow = profile.alwaysAllow ?? [];
         const widensAllow = nextAllow.some((key) => !(current.alwaysAllow ?? []).includes(key));
@@ -23212,6 +23262,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         patch.modelSelection = checked.selection;
       }
       if (body.approvalMode !== undefined || body.autoApprove !== undefined) {
+        if (store.bot(current.id)?.approvalMode === "yolo") return json(res, 403, { error: "Disable bot-wide YOLO in bot settings before changing a thread's approval mode" });
         if (body.autoApprove !== undefined && typeof body.autoApprove !== "boolean") return json(res, 400, { error: "autoApprove must be a boolean" });
         const mode = body.approvalMode ?? (body.autoApprove ? "auto" : "ask");
         // Elevated modes still require the trusted desktop transition. A
@@ -24440,6 +24491,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);
+      if (Object.hasOwn(body, "yolo")) return json(res, 403, { error: "Use the confirmed, authenticated YOLO setting instead of a generic config patch" });
       if (hostedModels && ["instances", "anthropic", "openai", "openrouter", "openaiCompat", "xai", "mistral", "cerebras", "opencodeGo"].some(key => Object.hasOwn(body, key))) return json(res, 403, { error: HOSTED_PROVIDER_SETTINGS_ERROR });
       const patch = parseConfigPatch(body);
       // A Cloud home is personal: nobody is invited to sign in to it.

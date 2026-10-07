@@ -11,6 +11,23 @@ import {
 } from "./ApprovalModeSelector";
 
 describe("approval mode selector", () => {
+  it("offers Pi YOLO to an authorized owner without requiring a local desktop bridge", () => {
+    expect(approvalModeOptionsFor("piAgent", false, true).map(option => option.mode)).toEqual(["ask", "auto", "yolo"]);
+    expect(approvalModeOptionsFor("piAgent", false).map(option => option.mode)).toEqual(["ask", "auto"]);
+    const html = renderToStaticMarkup(createElement(FullAccessWarning, { open: true, mode: "yolo", scope: "workspace", onCancel: () => {}, onConfirm: () => {} }));
+    expect(html).toContain("Enable workspace YOLO?");
+    expect(html).toContain("existing and future threads");
+    expect(html).toContain("destructive commands");
+    expect(html).toContain("restores each bot&#x27;s saved approval settings");
+  });
+  it("explains a workspace policy lock instead of claiming the idle bot is busy", () => {
+    const html = renderToStaticMarkup(createElement(ApprovalModeSelector, {
+      approvalMode: "yolo", providerName: "Pi", driverKind: "piAgent", onSelect: () => {}, disabled: true,
+      disabledReason: "Workspace YOLO is active. Turn it off in Settings to change individual bot approval levels.",
+    }));
+    expect(html).toContain('title="Workspace YOLO is active. Turn it off in Settings to change individual bot approval levels."');
+    expect(html).not.toContain("Stop this bot&#x27;s turn");
+  });
   it("discloses delegated work in the Full access confirmation", () => {
     const html = renderToStaticMarkup(createElement(FullAccessWarning, {
       open: true, onCancel: () => {}, onConfirm: () => {},
@@ -45,6 +62,11 @@ describe("approval mode selector", () => {
         mode: "custom",
         label: "Custom (config.toml)",
         description: "Uses permissions defined in config.toml",
+      },
+      {
+        mode: "yolo",
+        label: "YOLO mode",
+        description: "No action approvals for this bot, across all threads and routines. Elevated risk.",
       },
     ]);
   });

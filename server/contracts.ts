@@ -122,6 +122,8 @@ export interface SendTurnInput {
   /** Per-bot approval policy, reasserted by providers on every turn so a
    * resumed native session cannot retain a stale, more permissive mode. */
   approvalMode?: ApprovalMode;
+  /** The human granted bot-wide YOLO; native policy still travels as Full. */
+  yolo?: boolean;
   /** Fresh owner selection, independent of execution approval and resume state. */
   toolScope?: ToolScope;
   /** A guest drives this turn on an OMB Cloud home: it runs with no shell

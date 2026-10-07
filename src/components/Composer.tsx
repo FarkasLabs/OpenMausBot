@@ -557,7 +557,7 @@ export function Composer({
     refocusInput();
   };
   const setApprovalMode = (mode: ApprovalMode) => {
-    if (!modeBot || modeBot.busy || mode === approvalModeFor(modeBot)) return;
+    if (!modeBot || modeBot.busy || state.config?.yolo === true || mode === approvalModeFor(modeBot)) return;
     if ((mode === "full" || mode === "custom") && !trustedThreadAccess) return;
     if (mode === "full") {
       setApprovalWarning({ mode, botId: modeBot.id, threadId: modeBot.threadId });
@@ -1031,12 +1031,15 @@ export function Composer({
               )}
               {modeBot && approvalEngine && !remoteClient && (
                 <ApprovalModeSelector
-                  approvalMode={modeBot.approvalMode}
+                  approvalMode={state.config?.yolo === true ? "yolo" : modeBot.approvalMode}
                   autoApprove={modeBot.autoApprove}
                   providerName={approvalEngine.displayName}
                   driverKind={approvalEngine.driverKind}
                   onSelect={setApprovalMode}
-                  disabled={Boolean(modeBot.busy)}
+                  disabled={Boolean(modeBot.busy) || modeBot.approvalMode === "yolo" || state.config?.yolo === true}
+                  disabledReason={modeBot.busy ? undefined
+                    : state.config?.yolo === true ? t("settings.yolo.locked")
+                      : modeBot.approvalMode === "yolo" ? t("approvalMode.yolo.locked") : undefined}
                   trustedModesAvailable={trustedThreadAccess}
                   onManageCommandAllowlist={ownerOrAdmin === true ? () => setCommandAllowlistTarget({ botId: modeBot.id, botName: modeBot.name, threadId: modeBot.threadId }) : undefined}
                 />

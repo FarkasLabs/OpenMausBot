@@ -744,7 +744,10 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           throw err;
         }
       }
-      const childArgs = mcpTempDir ? [...PI_ARGS, "-e", SPAWNED_PROXIES.piMcpExtension] : PI_ARGS;
+      // Only the app extension may gate YOLO actions. User/project permission
+      // extensions could otherwise keep asking despite the explicit grant.
+      const args = turn.yolo ? [...PI_ARGS, "--approve", "--no-extensions"] : PI_ARGS;
+      const childArgs = mcpTempDir ? [...args, "-e", SPAWNED_PROXIES.piMcpExtension] : args;
 
       // spawnCli can throw synchronously (unresolvable CLI); if it does, the
       // 0600 temp file with the boat token / composio key / comms token must
