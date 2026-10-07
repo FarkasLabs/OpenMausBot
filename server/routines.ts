@@ -11,6 +11,7 @@ import type { GroupGoalRunStatus } from "../shared/group-goal-run.ts";
 import type { RoutineRequestOperation } from "../shared/routine-request.ts";
 import { normalizeCronSchedule, nextCronRuns, type RoutineCronSchedule } from "../shared/routine-schedule.ts";
 import { isRoutineProblemRun } from "../shared/routines.ts";
+import { CONDITIONAL_ROUTINE_PROMPT, ROUTINE_NO_REPORT, type RoutineDelivery, type RoutineReportOutcome } from "../shared/routine-delivery.ts";
 import { ROUTINE_PARTS, type PartPair, type RoutinePart } from "./package-parts.ts";
 
 export interface RoutineIntervalWindow {
@@ -100,6 +101,7 @@ export interface Routine {
   /** Default skips overlapping scheduled occurrences. Queue retains at most
    * one pending scheduled run; manual/webhook requests stay independent. */
   overlap?: "skip" | "queue";
+  delivery?: RoutineDelivery;
   skippedRuns?: number;
   lastSkippedAt?: number;
   /** Derived from retained terminal receipts, not another persisted authority. */
@@ -184,6 +186,8 @@ export interface RoutineRun {
   startedAt?: number;
   finishedAt?: number;
   output?: string;
+  delivery?: RoutineDelivery;
+  reportOutcome?: RoutineReportOutcome;
   /** Human-readable reason the detached execution is waiting. */
   attention?: string;
   error?: string;
@@ -241,6 +245,7 @@ export interface RoutineInput {
   timeoutMinutes?: number | null;
   attachments?: RoutineContextAttachment[];
   continuity?: boolean;
+  delivery?: RoutineDelivery;
   overlap?: "skip" | "queue";
   /** Omission preserves routing; null resets it to the bot's main thread. */
   resultsThreadId?: string | null;
@@ -756,6 +761,12 @@ function sanitizeInput(input: RoutineInput, after: number): Omit<Routine, "id" |
   if (runOn === "cloud" && attachments.length > 0) {
     throw new Error("Attachments can only run on this computer until cloud file staging is available");
   }
+  if (input.delivery !== undefined && input.delivery !== "always" && input.delivery !== "conditional") {
+    throw Object.assign(new Error("Choose always or conditional routine delivery"), { status: 400 });
+  }
+  if (input.delivery === "conditional" && target !== "bot") {
+    throw Object.assign(new Error("Conditional delivery is only available for bot routines"), { status: 400 });
+  }
   const continuity = input.continuity === true;
   if (input.overlap !== undefined && input.overlap !== "skip" && input.overlap !== "queue") {
     throw new Error("Choose skip or queue for overlapping runs");
@@ -776,6 +787,7 @@ function sanitizeInput(input: RoutineInput, after: number): Omit<Routine, "id" |
     ...(timeoutMinutes === undefined ? {} : { timeoutMinutes }),
     attachments,
     ...(continuity ? { continuity: true } : {}),
+    ...(input.delivery === "conditional" ? { delivery: "conditional" as const } : {}),
     ...(input.overlap === "queue" ? { overlap: "queue" as const } : {}),
   };
 }
@@ -813,6 +825,7 @@ export class RoutineManager {
               sourceThreadId: persistedSourceThreadId.parse(routine.sourceThreadId),
               resultsThreadId: persistedSourceThreadId.parse(routine.resultsThreadId),
               overlap: routine.overlap === "queue" ? "queue" : undefined,
+              delivery: routine.delivery === "conditional" && target === "bot" ? "conditional" : undefined,
               skippedRuns: Number.isSafeInteger(routine.skippedRuns) && routine.skippedRuns! > 0 ? routine.skippedRuns : undefined,
               lastSkippedAt: Number.isSafeInteger(routine.lastSkippedAt) && routine.lastSkippedAt! >= 0 && routine.lastSkippedAt! <= MAX_DATE_MS ? routine.lastSkippedAt : undefined,
               installedPackage: loadInstalledPackage(routine.installedPackage),
@@ -830,6 +843,10 @@ export class RoutineManager {
               ...run,
               target,
               goalStatus: loadGoalStatus(run.goalStatus, target),
+              delivery: run.delivery === "conditional" && target === "bot" ? "conditional" : undefined,
+              reportOutcome: run.status === "completed" && !run.error && !run.denials?.length &&
+                (run.reportOutcome === "report" || (run.reportOutcome === "no-report" && run.delivery === "conditional"))
+                ? run.reportOutcome : undefined,
               groupId: loadGroupId(run.groupId, target),
               runOn: run.runOn ?? "maus",
               timeoutMinutes: loadTimeoutMinutes(run.timeoutMinutes),
@@ -1098,6 +1115,7 @@ export class RoutineManager {
       timeoutMinutes: Object.hasOwn(patch, "timeoutMinutes") ? patch.timeoutMinutes : routine.timeoutMinutes,
       attachments: patch.attachments ?? routine.attachments,
       continuity: patch.continuity ?? routine.continuity,
+      delivery: patch.delivery ?? routine.delivery,
       overlap: Object.hasOwn(patch, "overlap") ? patch.overlap : routine.overlap,
     }, now);
     if (this.targetState(clean) === "missing") throw new Error(this.missingTargetMessage(clean.target));
@@ -1125,6 +1143,7 @@ export class RoutineManager {
       // `Object.assign` cannot remove a key, and a cleared flag is absent
       // rather than false, so switching continuity off has to delete it.
       if (!clean.continuity) delete routine.continuity;
+      if (clean.delivery !== "conditional") delete routine.delivery;
       if (clean.overlap !== "queue") delete routine.overlap;
       if (Object.hasOwn(patch, "timeoutMinutes") && patch.timeoutMinutes == null) {
         delete routine.timeoutMinutes;
@@ -1340,7 +1359,7 @@ export class RoutineManager {
       // different bot or execution destination.
       if (candidate.botId !== run.botId || candidate.target !== run.target || candidate.runOn !== run.runOn) continue;
       if (candidate.id === run.id) continue;
-      if (candidate.status !== "completed") continue;
+      if (candidate.status !== "completed" || candidate.reportOutcome === "no-report") continue;
       if (!candidate.output?.trim()) continue;
       if (!Number.isFinite(finishedOrder(candidate))) continue;
       if (!latest || finishedOrder(candidate) > finishedOrder(latest)) latest = candidate;
@@ -1589,7 +1608,7 @@ export class RoutineManager {
         const startedAt = this.now();
         const suffix = ` · ${new Date(startedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
         const title = `${run.routineName.slice(0, 80 - suffix.length).trimEnd()}${suffix}`;
-        const joined = run.target === "room-goal" ? null : this.options.joinConversation?.(run) || null;
+        const joined = run.target === "room-goal" || run.delivery === "conditional" ? null : this.options.joinConversation?.(run) || null;
         const task = joined
           ? { threadId: joined }
           : run.target === "room-goal"
@@ -1632,7 +1651,11 @@ export class RoutineManager {
             await this.options.startTurn(
               run.botId,
               task.threadId,
-              composeExecutionPrompt(prompt, run.attachments, this.continuityCarry(run)),
+              composeExecutionPrompt(
+                run.delivery === "conditional" ? `${CONDITIONAL_ROUTINE_PROMPT}\n\n${prompt}` : prompt,
+                run.attachments,
+                this.continuityCarry(run),
+              ),
               run.runOn ?? "maus",
               triggerSource,
               (message) => this.failThread(task.threadId, message),
@@ -1668,6 +1691,7 @@ export class RoutineManager {
     if (event.type === "turn.started") {
       run.status = "running";
       run.attention = undefined;
+      run.reportOutcome = undefined;
     } else if (event.type === "request.opened") {
       run.status = "waiting";
       run.attention = redactSecretsInText(event.summary).trim().slice(0, 500) || undefined;
@@ -1676,6 +1700,9 @@ export class RoutineManager {
       run.attention = undefined;
     } else if (event.type === "item.completed" && event.itemType === "assistant_text") {
       run.output = redactSecretsInText(event.text).trim().slice(0, 2_000);
+      run.reportOutcome = run.delivery === "conditional" && event.text.trim() === ROUTINE_NO_REPORT ? "no-report" : "report";
+    } else if (event.type === "item.completed" && event.itemType === "tool" && !event.ok && run.delivery === "conditional") {
+      run.error = redactSecretsInText(event.output || "A routine tool failed").slice(0, 500);
     } else if (event.type === "runtime.error") {
       run.error = redactSecretsInText(event.message).slice(0, 500);
     } else if (event.type === "turn.retrying") {
@@ -1694,6 +1721,11 @@ export class RoutineManager {
             run.error ??
             "The bot did not complete this run",
         );
+        queueMicrotask(() => void this.tick());
+        return cloneRun(run);
+      }
+      if (run.reportOutcome === "no-report" && (run.error || run.denials?.length)) {
+        this.failRun(run, run.error ?? "The routine reported no result after a permission denial");
         queueMicrotask(() => void this.tick());
         return cloneRun(run);
       }
@@ -1757,6 +1789,7 @@ export class RoutineManager {
   }
 
   private failRun(run: RoutineRun, message: string) {
+    run.reportOutcome = undefined;
     run.status = "failed";
     run.attention = undefined;
     run.error = redactSecretsInText(message).slice(0, 500);
@@ -1828,6 +1861,7 @@ export class RoutineManager {
       groupId: routine.groupId,
       botId: routine.botId,
       runOn: routine.runOn ?? "maus",
+      delivery: routine.delivery,
       scheduledFor,
       status: "queued",
       manual,

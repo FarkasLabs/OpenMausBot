@@ -113,6 +113,67 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+describe("conditional routine delivery", () => {
+  const input = () => ({ name: "Site monitor", prompt: "Report only if the fixture site changes.", botId: "maus-1",
+    delivery: "conditional" as const, schedule: { type: "interval" as const, everyMinutes: 5, anchorAt: Date.parse("2026-09-13T08:00:00Z") } });
+  const text = (h: ReturnType<typeof harness>, value: string) => h.manager.handleRuntimeEvent({
+    eventId: "text", provider: "fake", threadId: h.started.at(-1)!.threadId, createdAt: new Date().toISOString(),
+    type: "item.completed", itemType: "assistant_text", text: value,
+  });
+  const finish = (h: ReturnType<typeof harness>, extra = {}) => h.manager.handleRuntimeEvent({
+    eventId: "done", provider: "fake", threadId: h.started.at(-1)!.threadId, createdAt: new Date().toISOString(),
+    type: "turn.completed", ok: true, ...extra,
+  });
+
+  it.each(["manual", "schedule"])("keeps %s no-report runs successful and auditable with snapshotted delivery", async trigger => {
+    const h = harness(Date.parse("2026-09-13T08:00:00Z"));
+    h.options.joinConversation = () => "visible-main";
+    const routine = h.manager.create(input());
+    if (trigger === "manual") h.manager.runNow(routine.id);
+    else h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.started[0].threadId).not.toBe("visible-main");
+    expect(h.started[0].prompt).toContain('{"routine_result":"no_report"}');
+    h.manager.update(routine.id, { delivery: "always" });
+    text(h, '{"routine_result":"no_report"}');
+    expect(finish(h)).toMatchObject({ status: "completed", delivery: "conditional", reportOutcome: "no-report", triggerSource: trigger });
+    expect(new RoutineManager(h.options).listRuns()[0]).toMatchObject({ status: "completed", delivery: "conditional", reportOutcome: "no-report" });
+    expect(new RoutineManager(h.options).listRoutines()[0].delivery).toBeUndefined();
+    expect(h.failed).toEqual([]);
+  });
+
+  it.each(["The site changed.", "Nothing changed.", '{"routine_result":"no_report","error":"unreachable"}', '```json\n{"routine_result":"no_report"}\n```', '{"routine_result":"no_report"}\nCheck failed'])
+  ("does not guess no-report from %s", async output => {
+    const h = harness();
+    const routine = h.manager.create(input()); h.manager.runNow(routine.id); await h.manager.tick();
+    text(h, output);
+    expect(finish(h)).toMatchObject({ status: "completed", reportOutcome: "report", output });
+    expect(new RoutineManager(h.options).listRuns()[0]).toMatchObject({ status: "completed", reportOutcome: "report", output });
+  });
+
+  it.each(["error", "denial", "failed-turn", "tool-error"])("never treats %s as a successful no-report", async problem => {
+    const h = harness();
+    const routine = h.manager.create(input()); h.manager.runNow(routine.id); await h.manager.tick();
+    text(h, '{"routine_result":"no_report"}');
+    if (problem === "error") h.manager.handleRuntimeEvent({ eventId: "error", provider: "fake", threadId: h.started[0].threadId,
+      createdAt: new Date().toISOString(), type: "runtime.error", message: "Website unreachable" });
+    if (problem === "tool-error") h.manager.handleRuntimeEvent({ eventId: "tool-error", provider: "fake", threadId: h.started[0].threadId,
+      createdAt: new Date().toISOString(), type: "item.completed", itemType: "tool", ok: false, output: "Website unreachable" });
+    const run = finish(h, problem === "denial" ? { denials: ["WebFetch"] } : problem === "failed-turn" ? { ok: false, stopReason: "tool_error" } : {});
+    expect(run?.status).toBe("failed"); expect(run?.error).toBeTruthy(); expect(run?.reportOutcome).not.toBe("no-report");
+    expect(h.failed).toHaveLength(1);
+  });
+
+  it("retains always delivery by default and rejects silent room goals", async () => {
+    const h = harness();
+    const { delivery: _delivery, ...defaultInput } = input();
+    const routine = h.manager.create(defaultInput); h.manager.runNow(routine.id); await h.manager.tick();
+    text(h, '{"routine_result":"no_report"}');
+    expect(finish(h)).toMatchObject({ status: "completed", reportOutcome: "report" });
+    expect(() => h.manager.create({ ...input(), target: "room-goal", groupId: "room" })).toThrow("only available for bot");
+  });
+});
+
 describe("bounded scheduled overlap and run health", () => {
   const start = Date.parse("2026-09-13T08:00:00Z");
   const input = () => ({ name: "Health check", prompt: "Check the fixture", botId: "maus-1",

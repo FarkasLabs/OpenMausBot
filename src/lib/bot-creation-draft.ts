@@ -9,7 +9,7 @@ export const EMPTY_BOT_DEFAULTS: NewBotDefaults = { profile: {}, memory: {}, ski
 const routineTemplate = (routine: Routine): BotRoutineTemplate => ({
   name: routine.name, prompt: routine.prompt, schedule: routine.schedule,
   enabled: routine.enabled, runOn: routine.runOn, durationMinutes: routine.durationMinutes,
-  timeoutMinutes: routine.timeoutMinutes, overlap: routine.overlap,
+  timeoutMinutes: routine.timeoutMinutes, overlap: routine.overlap, delivery: routine.delivery,
   attachments: routine.attachments,
 });
 

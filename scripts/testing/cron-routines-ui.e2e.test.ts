@@ -42,11 +42,14 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
     return field.getBoundingClientRect().height > 0;
   })()`);
 
-  await click("Tools"); await click("Automations");
-  await click("Create an automation"); await click("Create a scheduled task");
+  await click("Routines");
+  await click("New routine");
   await fill('input[placeholder="Add title"]', "Monthly close");
   await fill('textarea[placeholder="What should the bot do?"]', "Summarize this fixture only.");
+  expect(await evaluate('document.querySelector(\'select[aria-label="Report delivery"]\').value')).toBe("always");
+  await select("Report delivery", "conditional");
   await click("More options");
+  expect(await evaluate('document.querySelector(\'select[aria-label="Report delivery"]\').value')).toBe("conditional");
   expect(await evaluate('document.querySelector(\'input[placeholder="Add title"]\').value')).toBe("Monthly close");
   await click("Call");
   const callOptions = await repeatOptions();
@@ -77,11 +80,13 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   await click("Schedule routine");
   await expect.poll(routines).toHaveLength(1);
   const monthly = (await routines())[0];
-  expect(monthly).toMatchObject({ name: "Monthly close", overlap: "queue", prompt: "Summarize this fixture only.", schedule: { type: "cron", expression: "0 9 L * *", timeZone: "UTC" } });
+  expect(monthly).toMatchObject({ name: "Monthly close", overlap: "queue", delivery: "conditional", prompt: "Summarize this fixture only.", schedule: { type: "cron", expression: "0 9 L * *", timeZone: "UTC" } });
   await click("List");
   await evaluate("document.querySelector('article[aria-label=\"Monthly close\"] button').click()");
   await click("Edit");
   expect(await evaluate("document.querySelector('select[aria-label=Repeat]').value")).toBe("monthly");
+  expect(await evaluate('document.querySelector(\'select[aria-label="Report delivery"]\').value')).toBe("conditional");
+  await select("Report delivery", "always");
   expect(await evaluate('document.querySelector(\'select[aria-label="If the previous run is still working"]\').value')).toBe("queue");
   expect(await openOverlap()).toBe(true);
   await select("If the previous run is still working", "skip");
@@ -90,6 +95,7 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   await click("Save");
   await expect.poll(async () => (await routines()).find(routine => routine.id === monthly.id)?.schedule).toEqual({ type: "cron", expression: "0 9 29 2 *", timeZone: "UTC" });
   expect((await routines()).find(routine => routine.id === monthly.id)?.overlap).toBeUndefined();
+  expect((await routines()).find(routine => routine.id === monthly.id)?.delivery).toBeUndefined();
 
   // The API models a bot-created arbitrary schedule. Editing only its title
   // must not collapse its ranges, weekdays, or non-local timezone to a preset.

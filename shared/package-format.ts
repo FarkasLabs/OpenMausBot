@@ -259,6 +259,7 @@ const packageDocumentV1Schema = z.object({
       durationMinutes: z.number().int().min(5).max(240),
       timeoutMinutes: z.number().int().min(5).max(240).optional(),
       overlap: z.enum(["skip", "queue"]).optional(),
+      delivery: z.enum(["always", "conditional"]).optional(),
       enabledAfterInstall: z.literal(false),
     })).max(50).optional(),
     playbooks: z.array(playbookSchema).max(80).optional(),
@@ -387,6 +388,7 @@ const routineSchema = z.object({
   durationMinutes: z.number().int().min(5).max(240),
   timeoutMinutes: z.number().int().min(1).max(1_440).optional(),
   overlap: z.enum(["skip", "queue"]).optional(),
+  delivery: z.enum(["always", "conditional"]).optional(),
   continuity: z.boolean().optional(),
   /** The publisher's intent. File imports always arrive paused. */
   enabledAfterInstall: z.boolean(),

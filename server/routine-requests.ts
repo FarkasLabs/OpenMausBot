@@ -84,6 +84,7 @@ const routineToolDefinitionSchema = z.object({
   name: z.string().max(80),
   instructions: z.string().max(20_000),
   schedule: routineToolScheduleSchema,
+  delivery: z.enum(["always", "conditional"]).optional(),
   runOn: z.enum(["maus", "cloud"]).optional(),
   durationMinutes: z.number().optional(),
   timeoutMinutes: z.number().nullable().optional(),
@@ -211,6 +212,7 @@ const storedDefinitionSchema = z.object({
   name: z.string().trim().min(1).max(80),
   instructions: z.string().trim().min(1).max(20_000),
   schedule: storedScheduleSchema,
+  delivery: z.enum(["always", "conditional"]).optional(),
   runOn: z.enum(["maus", "cloud"]),
   durationMinutes: z.number().int().min(5).max(240),
   timeoutMinutes: z.number().int().min(5).max(240).optional(),
@@ -597,6 +599,7 @@ function normalizeDefinition(input: RoutineToolDefinitionInput, now: number): Ro
     durationMinutes: duration(input.durationMinutes),
     ...(timeoutMinutes == null ? {} : { timeoutMinutes }),
     ...(input.continuity === true ? { continuity: true } : {}),
+    ...(input.delivery === "conditional" ? { delivery: "conditional" as const } : {}),
     ...(input.overlap === "queue" ? { overlap: "queue" as const } : {}),
   };
 }
@@ -611,6 +614,7 @@ function normalizeChanges(input: RoutineToolChangesInput, now: number): RoutineR
   if (input.timeoutMinutes !== undefined) changes.timeoutMinutes = timeout(input.timeoutMinutes);
   if (input.continuity !== undefined) changes.continuity = input.continuity === true;
   if (input.overlap !== undefined) changes.overlap = input.overlap;
+  if (input.delivery !== undefined) changes.delivery = input.delivery;
   return changes;
 }
 
@@ -836,6 +840,7 @@ function effectiveDefinition(operation: RoutineRequestOperation, manager: Routin
     ...(existing.timeoutMinutes === undefined ? {} : { timeoutMinutes: existing.timeoutMinutes }),
     ...(existing.continuity ? { continuity: true } : {}),
     ...(existing.overlap ? { overlap: existing.overlap } : {}),
+    ...(existing.delivery ? { delivery: existing.delivery } : {}),
   };
   if (operation.action !== "update") return base;
   const { schedule, timeoutMinutes, ...changes } = operation.changes;
@@ -917,6 +922,7 @@ function cardCopy(
         ? [`Next 3 runs (${scheduleTimeZone}): ${nextCronRuns(definition.schedule, now, 3).map((at) => formatInstant(at, scheduleTimeZone)).join(" · ")}`]
         : []),
       `Runs on: ${destination}`,
+      `Delivery: ${definition.delivery === "conditional" ? "Silent unless there is a meaningful report; errors and approvals remain visible" : "Report every run"}`,
       `Run limit: ${definition.timeoutMinutes === undefined ? "No limit" : `${definition.timeoutMinutes} minutes`}`,
       `Continuity: ${definition.continuity ? "Carries the previous run's report into the next run" : "Each run starts fresh"}`,
       `While busy: ${definition.overlap === "queue" ? "Queue one scheduled run; skip further occurrences until it starts" : "Skip overlapping scheduled occurrences"}`,
@@ -946,6 +952,7 @@ function inputFromDefinition(definition: RoutineRequestDefinition, botId: string
     ...(definition.timeoutMinutes === undefined ? {} : { timeoutMinutes: definition.timeoutMinutes }),
     ...(definition.continuity ? { continuity: true } : {}),
     ...(definition.overlap === "queue" ? { overlap: "queue" as const } : {}),
+    ...(definition.delivery === "conditional" ? { delivery: "conditional" as const } : {}),
   };
 }
 
@@ -963,6 +970,7 @@ function updateFromChanges(
   if (changes.timeoutMinutes !== undefined) patch.timeoutMinutes = changes.timeoutMinutes;
   if (changes.continuity !== undefined) patch.continuity = changes.continuity;
   if (changes.overlap !== undefined) patch.overlap = changes.overlap;
+  if (changes.delivery !== undefined) patch.delivery = changes.delivery;
   return patch;
 }
 
@@ -1038,6 +1046,7 @@ function revalidateOperation(operation: RoutineRequestOperation, manager: Routin
         || routine.timeoutMinutes !== definition.timeoutMinutes
         || Boolean(routine.continuity) !== Boolean(definition.continuity)
         || (routine.overlap ?? "skip") !== (definition.overlap ?? "skip")
+        || (routine.delivery ?? "always") !== (definition.delivery ?? "always")
         || (routine.attachments?.length ?? 0) > 0) return false;
       // An omitted start means "every N minutes", not a new phase each time
       // the model retries. Explicit starts and all other constraints stay exact.
@@ -1129,6 +1138,7 @@ function routineSnapshot(routine: Routine): RoutineRequestSnapshot | undefined {
     ...(routine.timeoutMinutes === undefined ? {} : { timeoutMinutes: routine.timeoutMinutes }),
     ...(routine.continuity ? { continuity: true } : {}),
     ...(routine.overlap === "queue" ? { overlap: "queue" as const } : {}),
+    ...(routine.delivery === "conditional" ? { delivery: "conditional" as const } : {}),
     enabled: routine.enabled,
     ...(routine.target === "room-goal" ? { target: "room-goal" as const } : {}),
     ...(routine.groupId ? { groupId: routine.groupId } : {}),
@@ -1152,6 +1162,7 @@ function restorePatch(before: RoutineRequestSnapshot, now: number): Partial<Rout
     timeoutMinutes: before.timeoutMinutes ?? null,
     continuity: before.continuity === true,
     overlap: before.overlap ?? "skip",
+    delivery: before.delivery ?? "always",
   };
 }
 
@@ -1406,6 +1417,7 @@ export class RoutineRequestService {
             ...(before.timeoutMinutes === undefined ? {} : { timeoutMinutes: before.timeoutMinutes }),
             ...(before.continuity ? { continuity: true } : {}),
             ...(before.overlap === "queue" ? { overlap: "queue" as const } : {}),
+            ...(before.delivery === "conditional" ? { delivery: "conditional" as const } : {}),
             ...(before.resultsThreadId ? { resultsThreadId: before.resultsThreadId } : {}),
           }).id;
           break;

@@ -212,6 +212,7 @@ export function createBotPackageExport(input: {
       durationMinutes: routine.durationMinutes,
       ...(routine.timeoutMinutes === undefined ? {} : { timeoutMinutes: routine.timeoutMinutes }),
       ...(routine.overlap === "queue" ? { overlap: "queue" as const } : {}),
+      ...(routine.delivery === "conditional" ? { delivery: "conditional" as const } : {}),
       enabledAfterInstall: false as const,
     }];
   });
@@ -719,6 +720,7 @@ export function createTeamPackageExport(input: TeamExportInput): TeamExportResul
       ...(routine.timeoutMinutes === undefined ? {} : { timeoutMinutes: routine.timeoutMinutes }),
       ...(routine.overlap === "queue" ? { overlap: "queue" as const } : {}),
       ...(!goal && routine.continuity ? { continuity: true } : {}),
+      ...(!goal && routine.delivery === "conditional" ? { delivery: "conditional" as const } : {}),
       enabledAfterInstall: routine.enabled,
     }];
   });

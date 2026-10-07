@@ -188,6 +188,11 @@ const ROUTINE_FIELDS_SCHEMA = {
     type: "boolean",
     description: "Opt in to using the latest completed run's bounded report as historical context. Use it for recurring work that builds on last time, such as QA passes, monitoring or follow-ups. Defaults to false; set false in an update to start fresh again. Included in the applied result or pending confirmation.",
   },
+  delivery: {
+    type: "string",
+    enum: ["always", "conditional"],
+    description: 'Default always reports every run. Choose conditional for silent monitoring or alerts that should message the user only when something changes or needs reporting. A successful check with nothing to report must end with exactly {"routine_result":"no_report"}; meaningful reports use the bot\'s established results conversation. Errors and permission requests remain visible. Use this capability when the task calls for conditional reporting without waiting for the user to name the option.',
+  },
   overlap: {
     type: "string",
     enum: ["skip", "queue"],

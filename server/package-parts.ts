@@ -98,6 +98,7 @@ export function scheduleValue(routine: {
   timeoutMinutes?: number | null;
   overlap?: string | null;
   continuity?: boolean | null;
+  delivery?: string | null;
 }) {
   return {
     runOn: routine.runOn,
@@ -106,6 +107,7 @@ export function scheduleValue(routine: {
     timeoutMinutes: routine.timeoutMinutes ?? null,
     overlap: routine.overlap ?? "skip",
     continuity: routine.continuity === true,
+    ...(routine.delivery === "conditional" ? { delivery: "conditional" } : {}),
   };
 }
 

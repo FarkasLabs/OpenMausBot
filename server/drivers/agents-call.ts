@@ -298,6 +298,9 @@ function routineFields(args: Json): { fields: Json; error?: string } {
   if (args.continuity != null && typeof args.continuity !== "boolean") {
     return { fields, error: "continuity must be true or false." };
   }
+  if (args.delivery !== undefined && args.delivery !== "always" && args.delivery !== "conditional") {
+    return { fields, error: "delivery must be always or conditional." };
+  }
   if (args.overlap !== undefined && args.overlap !== "skip" && args.overlap !== "queue") {
     return { fields, error: "overlap must be skip or queue." };
   }
@@ -319,6 +322,7 @@ function routineFields(args: Json): { fields: Json; error?: string } {
   else if (timeoutMinutes != null) fields.timeoutMinutes = timeoutMinutes;
   if (typeof args.continuity === "boolean") fields.continuity = args.continuity;
   if (args.overlap !== undefined) fields.overlap = args.overlap;
+  if (args.delivery !== undefined) fields.delivery = args.delivery;
   return { fields };
 }
 

@@ -65,7 +65,9 @@ afterEach(async () => {
 describe("importing a whole team", () => {
   it("adds every part from a file: persona, picture, brief, Chief, rooms, paused routines, skills off, valueless connections, notes", async () => {
     const app = await installation({ servers: { crm: { type: "http", url: "https://existing.example.com", headers: { Authorization: "Bearer mine" }, enabled: true } } });
-    const document: PackageDocument = app.parsePackageDocument(fixture("full-team.v2.json"));
+    const source = fixture("full-team.v2.json");
+    source.package.routines[0].delivery = "conditional";
+    const document: PackageDocument = app.parsePackageDocument(source);
     const result = app.importer.importPackageDocument(document, { trust: "file", mode: "add" }, app.deps);
     if (result.alreadyAdded) throw new Error("unexpected");
     const byKey = new Map(result.bots.map((bot) => [bot.installedPackage!.agentKey, app.store.bot(bot.id)!]));
@@ -93,7 +95,7 @@ describe("importing a whole team", () => {
     })]);
     expect(result.groups[0]!.memberIds.sort()).toEqual(result.bots.map((bot) => bot.id).sort());
     expect(result.routines).toEqual([
-      expect.objectContaining({ name: "Daily digest", botId: scout.id, enabled: false, nextRunAt: null, continuity: true, timeoutMinutes: 20 }),
+      expect.objectContaining({ name: "Daily digest", botId: scout.id, enabled: false, nextRunAt: null, continuity: true, timeoutMinutes: 20, delivery: "conditional" }),
       expect.objectContaining({ name: "Weekly pipeline review", target: "room-goal", groupId: result.groups[0]!.id, botId: lead.id, enabled: false }),
     ]);
     expect(app.skills.listSkills(scout.id)).toEqual([

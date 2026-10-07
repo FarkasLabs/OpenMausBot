@@ -4,6 +4,7 @@
  * frame union and every client consumer share one home; the client file
  * re-exports these under the same names. */
 import type { RoutineCronSchedule } from "./routine-schedule.ts";
+import type { RoutineDelivery, RoutineReportOutcome } from "./routine-delivery.ts";
 
 export interface RoutineIntervalWindow {
   start: string;
@@ -85,6 +86,7 @@ export function isRoutineProblemRun(run: { status: RoutineRunStatus }): boolean 
 export type RoutineRunStatusFilter = "all" | "problems" | RoutineRunStatus;
 
 export interface Routine {
+  delivery?: RoutineDelivery;
   id: string;
   name: string;
   prompt: string;
@@ -112,6 +114,8 @@ export interface Routine {
 }
 
 export interface RoutineRun {
+  delivery?: RoutineDelivery;
+  reportOutcome?: RoutineReportOutcome;
   id: string;
   routineId: string;
   routineName: string;
@@ -148,6 +152,7 @@ export interface RoutineRun {
 }
 
 export interface RoutineInput {
+  delivery?: RoutineDelivery;
   name: string;
   prompt: string;
   target?: RoutineTarget;

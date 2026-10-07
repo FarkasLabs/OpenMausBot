@@ -457,6 +457,7 @@ import { RepeatDetector, callKey } from "./repeat-detector.ts";
 import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
+import { routineReportVisible } from "../shared/routine-delivery.ts";
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
 import { BrowserRuntime, browserRuntimeEnv } from "./browser-runtime.ts";
@@ -7858,7 +7859,7 @@ bus.subscribe((event: RuntimeEvent) => {
           notify(buildNotification(
             permission ? "approval" : "question",
             notificationBot,
-            (routineRun && routineSourceThread(routineRun)) || event.threadId,
+            (routineRun?.delivery !== "conditional" && routineRun && routineSourceThread(routineRun)) || event.threadId,
             event.summary,
           ));
         }
@@ -8126,7 +8127,7 @@ bus.subscribe((event: RuntimeEvent) => {
         // A failed peer turn stays a chip too. The bot that delegated is woken
         // with the failure and answers the person in its own thread — buzzing
         // here as well would ring twice for one piece of news.
-        if ((!routineRun || routineRun.status === "completed") && !internal && !computerSelectionTurns.get(event.threadId)?.selected) {
+        if ((!routineRun || (routineRun.status === "completed" && routineReportVisible(routineRun))) && !internal && !computerSelectionTurns.get(event.threadId)?.selected) {
           // the frame carries the bot's avatar so every desktop client can
           // show the notification under that bot's own face
           const completionDetail = routineRun
@@ -11150,6 +11151,19 @@ function routineRunFallbackText(card: NonNullable<Message["routineRun"]>): strin
  * another chat message. */
 function syncRoutineRunToSource(run: RoutineRun): string | null {
   const source = routineSourceOwner(run);
+  // Hide the fresh execution before deciding whether there is a report.
+  // Silent runs stay internal even if their saved destination was deleted.
+  if (run.target === "bot" && run.triggerSource !== "webhook" && run.threadId && run.threadId !== source?.threadId) {
+    const execution = store.taskByThread(run.botId, run.threadId);
+    const freshExecution = execution && run.status === "running" && !execution.routineRunId &&
+      store.messagesFor(run.threadId).length === 0;
+    if (execution && freshExecution) {
+      store.patchTask(run.botId, run.threadId, { routineRunId: run.id, unread: false });
+    } else if (execution?.routineRunId === run.id && execution.unread) {
+      store.patchTask(run.botId, run.threadId, { unread: false });
+    }
+  }
+  if (!routineReportVisible(run)) return null;
   if (!source) {
     const execution = run.threadId ? store.taskByThread(run.botId, run.threadId) : null;
     if (execution?.routineRunId === run.id) {
@@ -11180,23 +11194,6 @@ function syncRoutineRunToSource(run: RoutineRun): string | null {
       message.from = { botId: source.bot.id, name: source.bot.name, color: source.bot.color };
     }
     store.appendMessage(sourceThreadId, message);
-  }
-
-  // Mark only the fresh execution, after its first running card persisted
-  // and before dispatch adds any transcript. A user can later promote it by
-  // sending a normal follow-up; replaying/marking the old receipt seen must
-  // never hide that conversation again.
-  if (run.target === "bot" && run.triggerSource !== "webhook" && run.threadId && run.threadId !== sourceThreadId) {
-    const execution = store.taskByThread(run.botId, run.threadId);
-    const freshExecution = execution && run.status === "running" && !execution.routineRunId &&
-      store.messagesFor(run.threadId).length === 0;
-    if (execution && freshExecution) {
-      store.patchTask(run.botId, run.threadId, { routineRunId: run.id, unread: false });
-    } else if (execution?.routineRunId === run.id && execution.unread) {
-      // Already this run. Clear the dot without rewriting the tag, so a
-      // promoted thread (tag cleared, transcript present) stays visible.
-      store.patchTask(run.botId, run.threadId, { unread: false });
-    }
   }
 
   // Merely queueing/running is ambient progress. Attention and terminal
@@ -11393,6 +11390,7 @@ routines = new RoutineManager({
     reportIncident({ kind: "routine-failed", bot, threadId: run.threadId ?? bot.threadId, detail });
   },
   onRunDeferred: (run) => {
+    if (run.delivery === "conditional") return;
     const bot = store.bot(run.botId);
     if (!bot) return;
     const minutes = run.deferredAt != null && run.deferredNoticeAt != null
@@ -12040,6 +12038,7 @@ const agentRoutine = (
     instructions: safeInstructions.slice(0, 2_000),
     instructionsTruncated: safeInstructions.length > 2_000,
     continuity: routine.continuity === true,
+    delivery: routine.delivery ?? "always",
     overlap: routine.overlap ?? "skip",
     skippedRuns: routine.skippedRuns ?? 0,
     lastSkippedAt: routineTimestamp(routine.lastSkippedAt),

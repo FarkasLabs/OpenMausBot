@@ -9,6 +9,7 @@
  */
 
 import type { RoutineCronSchedule } from "./routine-schedule.ts";
+import type { RoutineDelivery } from "./routine-delivery.ts";
 
 export type RoutineRequestRunOn = "maus" | "cloud";
 
@@ -48,6 +49,7 @@ export type RoutineRequestScheduleChanges =
   };
 
 export interface RoutineRequestDefinition {
+  delivery?: RoutineDelivery;
   name: string;
   instructions: string;
   schedule: RoutineRequestSchedule;
