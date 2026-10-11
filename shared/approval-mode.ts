@@ -2,7 +2,7 @@
  * permission mode, passed through: OpenMausBot never decides a permission
  * itself (Full access aside, which answers residual prompts because that is
  * what the person granted). The order is the order the selector shows. */
-export const APPROVAL_MODES = ["ask", "edits", "auto", "full", "custom"] as const;
+export const APPROVAL_MODES = ["ask", "edits", "auto", "full", "custom", "yolo"] as const;
 
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
@@ -14,7 +14,8 @@ export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 export function supportsApprovalMode(driverKind: string | undefined, mode: ApprovalMode): boolean {
   if (mode === "custom") return driverKind === "codex";
   if (mode === "edits") return ["claudeAgent", "grokAgent", "antigravityAgent", "qwenAgent", "geminiAgent"].includes(driverKind ?? "");
-  if (mode !== "full") return true;
+  if (mode === "yolo" && driverKind === "piAgent") return true;
+  if (mode !== "full" && mode !== "yolo") return true;
   // The chat-completions family has no provider-side reviewer, so Full is
   // implemented in the harness: createOpenAIChatRuntime answers its own tool
   // gate instead of opening a card. Without this a bot on one of these
@@ -73,5 +74,5 @@ export function isEmergencyApprovalDowngrade(
   current: ApprovalMode,
   next: ApprovalMode,
 ): boolean {
-  return next === "ask" && (current === "full" || current === "custom");
+  return next === "ask" && (current === "full" || current === "custom" || current === "yolo");
 }

@@ -62,8 +62,8 @@ describe("approval modes", () => {
     expect(supportsApprovalMode(driver, "custom")).toBe(false);
     expect(hasNativeAutoReview(driver)).toBe(false);
   });
-  it("recognizes only the five durable values", () => {
-    expect(APPROVAL_MODES).toEqual(["ask", "edits", "auto", "full", "custom"]);
+  it("recognizes the explicit YOLO value without changing legacy defaults", () => {
+    expect(APPROVAL_MODES).toEqual(["ask", "edits", "auto", "full", "custom", "yolo"]);
     for (const mode of APPROVAL_MODES) expect(isApprovalMode(mode)).toBe(true);
     for (const value of [undefined, null, true, "automatic", "bypass"]) {
       expect(isApprovalMode(value)).toBe(false);
@@ -127,6 +127,7 @@ describe("approval support bound to a registry", () => {
     expect(supports(pi, "ask")).toBe(true);
     expect(supports(pi, "auto")).toBe(true);
     expect(supports(pi, "full")).toBe(false);
+    expect(supports(pi, "yolo")).toBe(true);
     expect(supports(pi, "custom")).toBe(false);
   });
 

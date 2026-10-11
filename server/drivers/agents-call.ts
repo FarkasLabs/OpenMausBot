@@ -1261,6 +1261,18 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       text: `A confirmation card is now visible to the user for ${proposal}.${warningText}\n\n${status} End this turn and wait for the decision.`,
     };
   }
+  if (name === "settings_manage" || name === "mcp_manage") {
+    if (name === "mcp_manage" && typeof args.server === "string") {
+      try { args = { ...args, server: JSON.parse(args.server) }; }
+      catch { return { text: "server must be a JSON object with command or url and enabled true or false", isError: true }; }
+    }
+    try {
+      const result = await api(name === "settings_manage" ? "/api/internal/own-settings" : "/api/internal/own-mcp", { method: "POST", body: JSON.stringify(args) });
+      return { text: JSON.stringify(result) };
+    } catch (error) {
+      return { text: error instanceof Error ? error.message : String(error), isError: true };
+    }
+  }
   if (name === "add_mcp_server") {
     let saved: Json;
     try {

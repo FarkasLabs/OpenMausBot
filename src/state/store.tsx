@@ -528,7 +528,7 @@ export function currentTaskBot(bot: Bot, threadId = bot.threadId): Bot {
     ...bot,
     threadId,
     modelSelection: task.modelSelection ?? bot.modelSelection,
-    approvalMode: task.approvalMode ?? (task.autoApprove === undefined ? bot.approvalMode : undefined),
+    approvalMode: bot.approvalMode === "yolo" ? "yolo" : task.approvalMode ?? (task.autoApprove === undefined ? bot.approvalMode : undefined),
     autoApprove: task.autoApprove ?? bot.autoApprove,
     alwaysAllow: task.alwaysAllow ?? bot.alwaysAllow,
     activity: task.activity ?? bot.activity,
@@ -627,6 +627,7 @@ export function visibleMessages(bot: Pick<Bot, "messages" | "activeLeafId">): Me
 
 /** GET /api/config — configured flags only; secrets are never echoed. */
 export interface ConfigStatus {
+  yolo?: boolean;
   xai?: { configured: boolean };
   mistral?: { configured: boolean };
   cerebras?: { configured: boolean };
@@ -2621,6 +2622,7 @@ export async function persistTaskApproval(
 ): Promise<BotAnnouncement> {
   const { approvalMode, autoApprove, confirmFullAccess, acknowledgeLocalAuto, ...ordinary } = patch;
   const mode = approvalMode ?? (autoApprove === undefined ? undefined : autoApprove ? "auto" : "ask");
+  if (mode === "yolo") throw new Error("Enable YOLO for the whole bot in bot settings");
   if (mode === "full" && confirmFullAccess !== true) throw new Error("Confirm Full access for this thread first");
   if ((mode === "full" || mode === "custom") && !bridge) throw new Error("This approval change requires the packaged desktop app");
   if (mode && bridge) {
@@ -2651,12 +2653,24 @@ export async function persistBotUpdate(
     applyToAllThreads,
     ...ordinaryPatch
   } = patch;
+  if (approvalMode === "yolo" || (currentBot?.approvalMode === "yolo" && approvalMode !== undefined)) {
+    if (approvalMode !== "yolo" && approvalMode !== "ask") throw new Error("Disable YOLO to Ask before selecting another mode");
+    if (approvalMode === "yolo" && confirmFullAccess !== true) throw new Error("Confirm the YOLO warning before enabling it");
+    const result = await request(`/api/bots/${botId}/yolo`, {
+      method: "PUT", body: JSON.stringify({ enabled: approvalMode === "yolo", confirmed: confirmFullAccess === true }), signal,
+    });
+    if (signal.aborted && approvalMode === "yolo") {
+      await request(`/api/bots/${botId}/yolo`, { method: "PUT", body: JSON.stringify({ enabled: false }) });
+      throw new DOMException("The bot update was cancelled", "AbortError");
+    }
+    if (!Object.keys(ordinaryPatch).length) return result.bot;
+    return (await request(`/api/bots/${botId}`, { method: "PATCH", body: JSON.stringify(ordinaryPatch), signal })).bot;
+  }
   const trustedMode = approvalMode === "full" || approvalMode === "custom"
     ? approvalMode
     : null;
   const leavesCustom = approvalMode !== undefined &&
-    approvalModeFor(currentBot ?? {}) === "custom" &&
-    approvalMode !== "custom";
+    approvalModeFor(currentBot ?? {}) === "custom" && approvalMode !== "custom";
 
   if (!trustedMode && !leavesCustom) {
     const result = await request(`/api/bots/${botId}`, {
@@ -2692,7 +2706,7 @@ export async function persistBotUpdate(
     // downgrade even if a turn happened to start in the response gap.
     if (approvalMode === "full" || approvalMode === "custom") {
       try {
-        await trustedApprovals.setMode(botId, "ask", { acknowledgeLocalAuto: false, ...(applyToAllThreads ? { allThreads: true } : {}) });
+        await trustedApprovals.setMode(botId, "ask", { acknowledgeLocalAuto: false, ...(trustedOptions.allThreads ? { allThreads: true } : {}) });
       } catch (error) {
         throw new Error(
           `The cancelled ${approvalMode === "full" ? "Full access" : "Custom approval"} grant could not be revoked: ${

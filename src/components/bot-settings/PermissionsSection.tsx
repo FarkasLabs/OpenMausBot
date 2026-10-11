@@ -23,6 +23,7 @@ import { DEFAULT_OUTBOUND_POLICY, type OutboundPolicy } from "../../../shared/ou
 import { ApprovalModeSelector } from "../ApprovalModeSelector";
 import { CommandAllowlistDialog } from "../CommandAllowlistDialog";
 import { FullAccessWarning } from "../FullAccessWarning";
+import { WorkspaceYoloSettings } from "../WorkspaceYoloSettings";
 import { LocalComputerAutoWarning } from "../LocalComputerAutoWarning";
 import { Switch } from "../SettingsPrimitives";
 import { ManagedTeamsSettings } from "./ManagedTeamsSettings";
@@ -44,10 +45,12 @@ export function PermissionsSection({
   const [localAutoWarning, setLocalAutoWarning] = useState<string | null>(null);
   const [fullAccessTarget, setFullAccessTarget] = useState<string | null>(null);
   const [allThreads, setAllThreads] = useState(true);
+  const [warningMode, setWarningMode] = useState<"full" | "yolo">("full");
   const [commandAllowlistTarget, setCommandAllowlistTarget] = useState<{ botId: string; botName: string } | null>(null);
   const setApprovalMode = (mode: ApprovalMode) => {
-    if (bot.busy || mode === approvalMode) return;
-    if (mode === "full") {
+    if (bot.busy || state.config?.yolo === true || mode === approvalMode) return;
+    if (mode === "full" || mode === "yolo") {
+      setWarningMode(mode);
       setAllThreads(true);
       setFullAccessTarget(bot.id);
       return;
@@ -61,6 +64,7 @@ export function PermissionsSection({
 
   return (
     <div className="flex flex-col gap-4">
+      {!draft && <WorkspaceYoloSettings />}
       <div
         className={cn(
           "rounded-xl border p-4",
@@ -134,27 +138,29 @@ export function PermissionsSection({
       <div className="rounded-xl bg-card p-4">
         <div className="text-[15px] font-medium text-ink">Approval level</div>
         <div className="mt-0.5 text-[13px] text-ink-secondary">
-          {draft ? "Default for the new bot's threads, routines and delegated work." : "Default for new threads, routines and delegated work. When enabling Full access, you can also apply it to every existing thread. Use Refresh permissions on a thread to apply the current level to that conversation."}
+          {state.config?.yolo === true ? t("settings.yolo.botNotice") : approvalMode === "yolo" ? t("approvalMode.yolo.active") : draft ? "Default for the new bot's threads, routines and delegated work." : t("approvalMode.yolo.botHelp")}
         </div>
         <ProposalStatus bot={bot} kind="owner" />
         <div className="mt-3">
           <ApprovalModeSelector
-            approvalMode={bot.approvalMode}
+            approvalMode={state.config?.yolo === true ? "yolo" : bot.approvalMode}
             autoApprove={bot.autoApprove}
             providerName={engine?.displayName ?? bot.name}
             driverKind={engine?.driverKind ?? ""}
             onSelect={setApprovalMode}
             menuDirection="down"
             wide
-            disabled={Boolean(bot.busy)}
+            disabled={Boolean(bot.busy) || state.config?.yolo === true}
+            disabledReason={!bot.busy && state.config?.yolo === true ? t("settings.yolo.locked") : undefined}
             trustedModesAvailable={trustedModesAvailable}
+            allowYolo={!draft && ownerOrAdmin === true && state.config?.yolo !== true}
             onManageCommandAllowlist={!draft && ownerOrAdmin === true ? () => setCommandAllowlistTarget({ botId: bot.id, botName: bot.name }) : undefined}
           />
         </div>
         {!draft && approvalMode === "full" && trustedModesAvailable && <button
           type="button" disabled={Boolean(bot.busy)}
           className="mt-3 text-[13px] text-accent hover:underline disabled:opacity-40"
-          onClick={() => { setAllThreads(true); setFullAccessTarget(bot.id); }}
+          onClick={() => { setWarningMode("full"); setAllThreads(true); setFullAccessTarget(bot.id); }}
         >Apply Full access to all threads</button>}
         {!draft && ownerOrAdmin === true && <button
           type="button"
@@ -181,6 +187,7 @@ export function PermissionsSection({
       />
       <FullAccessWarning
         open={fullAccessTarget !== null}
+        mode={warningMode}
         allThreads={allThreads}
         onAllThreadsChange={draft ? undefined : setAllThreads}
         onCancel={() => setFullAccessTarget(null)}
@@ -188,7 +195,7 @@ export function PermissionsSection({
           const target = fullAccessTarget;
           setFullAccessTarget(null);
           if (!target) return;
-          dispatch({ type: "updateBot", botId: target, patch: { approvalMode: "full", confirmFullAccess: true, applyToAllThreads: allThreads } });
+          dispatch({ type: "updateBot", botId: target, patch: { approvalMode: warningMode, confirmFullAccess: true, applyToAllThreads: warningMode === "yolo" || allThreads } });
         }}
       />
     </div>
@@ -235,7 +242,7 @@ function OutboundControl({ bot, onChange }: { bot: Bot; onChange: (policy: Outbo
       <div className="text-[15px] font-medium text-ink">Sending on your behalf</div>
       <div className="mt-0.5 text-[13px] text-ink-secondary">
         Emails, messages, posts, invites, and payments through connected apps. Reading and drafting never count.
-        This applies at every approval level, including Full access.
+        Full access keeps this gate. YOLO bypasses action approvals and this daily cap.
       </div>
       <div className="mt-3 flex gap-1 rounded-lg bg-inset p-0.5">
         {(

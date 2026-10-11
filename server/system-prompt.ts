@@ -8,6 +8,7 @@
 import { soulSystemPrompt } from "./bot-folder.ts";
 import { teammateAvailabilityPrompt, type RosterMember } from "./peer-roster.ts";
 import type { ConnectorToolGrant } from "../shared/wire.ts";
+import type { ApprovalMode } from "../shared/approval-mode.ts";
 
 export type PromptPart = { id: string; label: string; text: string };
 export type PromptSection = PromptPart & { bytes: number };
@@ -47,11 +48,13 @@ export function buildSystemPrompt(
   persona: string,
   soul: string,
   parts: PromptPart[],
+  approvalMode: ApprovalMode = "ask",
 ): { text: string; sections: PromptSection[]; stable: string; volatile: string } {
   const ordered: PromptPart[] = [
     { id: "persona", label: "Identity", text: persona },
-    { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul) },
+    { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul, approvalMode === "yolo") },
     ...parts,
+    ...(approvalMode === "yolo" ? [{ id: "yolo", label: "YOLO permissions", text: "\n\nThe workspace owner enabled YOLO for this work. Your action tools run without approval, including destructive commands and paths outside your working folder. You may autonomously change your own skills, settings, MCP servers and routines. Use propose_profile for your own profile and SOUL.md; these changes apply directly without another user request or confirmation. Use the advertised management tools so OpenMausBot persists changes. Questions still need the user's answer. Tool selection, account authentication, team and visibility boundaries remain in force. You cannot enable YOLO or change approval authority for yourself or another bot." }] : []),
   ];
   const sections = ordered
     .filter((part) => part.text.length > 0)

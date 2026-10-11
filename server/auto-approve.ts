@@ -47,7 +47,7 @@ export function approvalModeForOrigin(mode: ApprovalMode, origin: { peerInitiate
 
 /** Levels by how much runs without asking. Custom is a provider config of
  * its own and is never compared. */
-const LEVEL_RANK: Partial<Record<ApprovalMode, number>> = { ask: 0, edits: 1, auto: 2, full: 3 };
+const LEVEL_RANK: Partial<Record<ApprovalMode, number>> = { ask: 0, edits: 1, auto: 2, full: 3, yolo: 4 };
 
 /** The level work a bot hands to a teammate starts at, or null to keep the
  * teammate's own. A Chief of Staff's level flows down: the person set it on
@@ -68,7 +68,7 @@ export function delegatedApprovalMode(input: {
   recipientMode: ApprovalMode;
   recipientDriverKind: string | undefined;
 }): ApprovalMode | null {
-  if (!input.senderIsChief || input.sameBot) return null;
+  if (!input.senderIsChief || input.sameBot || input.senderMode === "yolo") return null;
   // A Chief's Custom config is its own; for a teammate it reads as Approve
   // for me, as for any peer-started Custom turn (approvalModeForOrigin).
   const sender = LEVEL_RANK[approvalModeForOrigin(input.senderMode, { peerInitiated: true })] ?? 0;
@@ -147,7 +147,7 @@ export function autoVerdict(
   // Full's promise is literal: even a sandbox widening is approved. Entering
   // Full is separately consent-gated by the bot PATCH endpoint, and the
   // request.opened caller invokes this for permissions only, never questions.
-  if (mode === "full") return { approve: `approved ${tool} (full access)`, source: "full-access" };
+  if (mode === "full" || mode === "yolo") return { approve: `approved ${tool} (${mode === "yolo" ? "YOLO" : "full access"})`, source: "full-access" };
   if (context?.requiresExplicitApproval) return { approve: null, source: "explicit-approval-block" };
   if (isOutboundTool(tool)) return { approve: null, source: "outbound-guard" };
   if (context?.commandAllowed) return { approve: `approved ${tool} (saved command)`, source: "command-allowlist" };

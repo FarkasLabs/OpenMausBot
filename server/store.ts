@@ -388,7 +388,7 @@ export interface BotRecord extends Omit<WireBot, "avatarUrl" | "tasks"> {
    * during Store load. */
   approvalGrant?: {
     requestId: string;
-    mode: "full" | "custom";
+    mode: "full" | "custom" | "yolo";
     phase: "prepared" | "confirmed" | "activated" | "committed";
     /** Optional existing thread receiving this already-approved bot default. */
     threadId?: string;
@@ -732,7 +732,7 @@ export class Store {
         b.approvalMode = "ask";
         b.autoApprove = false;
         for (const task of b.tasks ?? []) {
-          if (task.approvalMode === "full" || task.approvalMode === "custom") {
+          if (task.approvalMode === "full" || task.approvalMode === "custom" || task.approvalMode === "yolo") {
             task.approvalMode = "ask";
             task.autoApprove = false;
           }
@@ -2661,7 +2661,7 @@ export class Store {
       approvalGrant: bot.approvalGrant?.threadOnly && bot.approvalGrant.threadId !== threadId ? undefined : bot.approvalGrant,
       modelSelection: structuredClone(task.modelSelection ?? bot.modelSelection),
       resumeCursors: structuredClone(task.resumeCursors),
-      approvalMode: task.approvalMode ?? (task.autoApprove === undefined ? bot.approvalMode : undefined),
+      approvalMode: bot.approvalMode === "yolo" ? "yolo" : task.approvalMode ?? (task.autoApprove === undefined ? bot.approvalMode : undefined),
       autoApprove: task.autoApprove ?? bot.autoApprove,
       alwaysAllow: structuredClone(task.alwaysAllow ?? bot.alwaysAllow),
       unread: Boolean(task.unread),
@@ -2774,7 +2774,7 @@ export class Store {
   }
 
   /** One durable write: never leave only part of a bot's threads updated. */
-  setAllThreadApprovalMode(botId: string, mode: "full" | "ask"): BotRecord | null {
+  setAllThreadApprovalMode(botId: string, mode: "full" | "yolo" | "ask"): BotRecord | null {
     const bot = this.bot(botId);
     if (!bot) return null;
     const patch = { approvalMode: mode, autoApprove: false, alwaysAllow: [] };
