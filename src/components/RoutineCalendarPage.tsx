@@ -47,6 +47,8 @@ import { CalendarSidebar } from "@/components/routines/CalendarSidebar";
 import { RoutineList } from "@/components/routines/RoutineList";
 import { RoutineLogs } from "@/components/routines/RoutineLogs";
 import { ResultsDestination } from "@/components/routines/ResultsDestination";
+import { RoutineDeliveryControl } from "@/components/routines/RoutineDeliveryControl";
+import type { RoutineDelivery } from "../../shared/routine-delivery.ts";
 import { CronScheduleFields, CronSchedulePreview } from "@/components/routines/CronScheduleFields";
 import { cronChoiceFor, cronDraftFor, cronEditorValue, isCronChoice, type CronChoice } from "@/components/routines/cron-editor";
 import { routineRunLabel, routineRunsOn, routineRunTime, routineScheduleState } from "@/lib/routine-display";
@@ -135,6 +137,7 @@ type EventSeed = {
   name?: string;
   description?: string;
   resultsThreadId?: string | null;
+  delivery?: RoutineDelivery;
   anchor?: { x: number; y: number };
   routine?: Routine;
   call?: CalendarCall;
@@ -376,6 +379,7 @@ export function EventEditor({
   );
   const [intervalTimeoutDefaultApplied, setIntervalTimeoutDefaultApplied] = useState(Boolean(existingRoutine));
   const [overlap, setOverlap] = useState<"skip" | "queue">(existingRoutine?.overlap ?? "skip");
+  const [delivery, setDelivery] = useState<RoutineDelivery>(existingRoutine?.delivery ?? seed.delivery ?? "always");
   const [continuity, setContinuity] = useState(Boolean(existingRoutine?.continuity));
   const [recurrence, setRecurrence] = useState<RecurrenceChoice>(recurrenceFor(schedule, initialAt));
   const [cronDraft, setCronDraft] = useState(() => cronDraftFor(schedule.type === "cron" ? schedule : undefined, initialAt));
@@ -548,6 +552,7 @@ export function EventEditor({
           durationMinutes,
           timeoutMinutes,
           overlap,
+          delivery: routineTarget === "bot" ? delivery : "always",
           // Room goals can't carry a report yet, and a one-time run has no next run.
           continuity: routineTarget === "bot" && recurrence !== "none" && continuity,
           attachments: routineTarget === "room-goal" ? [] : attachments as RoutineContextAttachment[],
@@ -1017,6 +1022,7 @@ export function EventEditor({
             <FileText size={18} className="mt-2.5 shrink-0 text-ink-secondary" />
             <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={5} placeholder={isRoomGoal ? "What should the team accomplish?" : kind === "routine" ? (advanced ? "Add instructions for the bot" : t("routines.editor.instructionsPlaceholder")) : "Add description or agenda"} className="min-w-0 flex-1 resize-y rounded-xl border border-hairline/50 bg-inset px-3.5 py-3 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-tertiary focus:border-accent" />
           </div>
+          {kind === "routine" && !isRoomGoal && <RoutineDeliveryControl value={delivery} onChange={setDelivery} />}
           {continuityControl}
 
           {advanced && attachmentsRow}
@@ -1089,6 +1095,7 @@ function QuickComposer({
   const [description, setDescription] = useState(seed.description ?? "");
   const [botIds, setBotIds] = useState(seed.botIds.length ? seed.botIds : bots[0] ? [bots[0].id] : []);
   const [resultsThreadId, setResultsThreadId] = useState<string | null>(seed.resultsThreadId ?? null);
+  const [delivery, setDelivery] = useState<RoutineDelivery>(seed.delivery ?? "always");
   const selectBots = (ids: string[]) => {
     if (ids[0] !== botIds[0]) setResultsThreadId(null);
     setBotIds(ids);
@@ -1139,6 +1146,7 @@ function QuickComposer({
             schedule: { type: "once", at: seed.at },
             durationMinutes,
             attachments: [],
+            delivery,
             resultsThreadId,
           } satisfies RoutineInput),
         });
@@ -1203,11 +1211,12 @@ function QuickComposer({
           <FileText size={16} className="mt-2.5 shrink-0 text-ink-secondary" />
           <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder={kind === "routine" ? "What should the bot do?" : "Add a description (optional)"} className="min-w-0 flex-1 resize-none rounded-lg border border-hairline/50 bg-inset px-3 py-2 text-[12.5px] leading-relaxed text-ink outline-none placeholder:text-ink-tertiary focus:border-accent" />
         </div>
+        {kind === "routine" && <RoutineDeliveryControl value={delivery} onChange={setDelivery} />}
         {kind === "routine" && <ResultsDestination bot={bots.find((bot) => bot.id === botIds[0])} value={resultsThreadId} onChange={(threadId) => setResultsThreadId(threadId ?? null)} />}
         {error && <div className="rounded-lg bg-danger/10 px-3 py-2 text-[11.5px] text-danger">{error}</div>}
       </div>
       <div className="flex items-center justify-end gap-2 border-t border-hairline/40 px-4 py-3">
-        <button onClick={() => onMore({ ...seed, kind, botIds, name, description, durationMinutes, resultsThreadId })} title="Choose repeating schedules and other options" className="rounded-lg px-3 py-2 text-[12px] font-medium text-accent hover:bg-accent/10">More options</button>
+        <button onClick={() => onMore({ ...seed, kind, botIds, name, description, durationMinutes, resultsThreadId, delivery })} title="Choose repeating schedules and other options" className="rounded-lg px-3 py-2 text-[12px] font-medium text-accent hover:bg-accent/10">More options</button>
         <button onClick={save} disabled={!valid || working} className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-[12px] font-semibold text-white hover:brightness-110 disabled:opacity-40">{working && <Loader2 size={13} className="animate-spin" />}Save</button>
       </div>
     </div>

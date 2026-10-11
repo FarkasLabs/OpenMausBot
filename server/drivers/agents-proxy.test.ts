@@ -1577,6 +1577,7 @@ describe("agents-proxy MCP surface", () => {
       duration_minutes: 45,
       timeout_minutes: 15,
       continuity: true,
+      delivery: "conditional",
     });
     expect(lastRoutineRequestBody).toEqual({
       fromBotId: "bot-asker",
@@ -1589,6 +1590,7 @@ describe("agents-proxy MCP surface", () => {
         runOn: "maus",
         timeoutMinutes: 15,
         continuity: true,
+        delivery: "conditional",
       },
     });
     expect(res.result.content[0].text).toContain("confirmation card");

@@ -253,6 +253,14 @@ describe("routine editor", () => {
     for (const text of hidden) expect(html, text).not.toContain(text);
   });
 
+  it("offers silent delivery without opening advanced options and restores the saved choice", () => {
+    expect(editor()).toContain('aria-label="Report delivery"');
+    expect(editor()).toContain('<option value="always" selected="">Report every run</option>');
+    const silent = editor({ ...routine, delivery: "conditional" });
+    expect(silent).toContain('<option value="conditional" selected="">Silent unless there is something to report</option>');
+    expect(silent).toContain("Errors and permission requests still need attention");
+  });
+
   it("marks the routine's repeat choice", () => {
     expect(editor(routine)).toMatch(/aria-pressed="true"[^>]*>Every day</);
   });

@@ -75,6 +75,7 @@ export const botRoutineTemplateSchema = z.object({
   durationMinutes: z.number().int().min(5).max(240).optional(),
   timeoutMinutes: z.number().min(1).max(1440).nullable().optional(),
   overlap: z.enum(["skip", "queue"]).optional(),
+  delivery: z.enum(["always", "conditional"]).optional(),
   attachments: z.array(z.object({
     id: z.string().min(1).max(200), kind: z.enum(["file", "image"]),
     name: z.string().min(1).max(255), path: z.string().min(1).max(4096), size: z.number().nonnegative(),

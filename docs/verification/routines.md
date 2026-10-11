@@ -69,7 +69,7 @@ The final startup JSON includes the server `url`, `previewUrl`, `pepperId`,
    Open that routine and run it. Its lifecycle receipt lands in Pepper's main
    thread (her oldest open conversation), not the source chat or a new
    "· Results" thread, and leads to the isolated execution thread.
-2. Open **Automations → Schedule**. Toggle **List / Calendar**. The list must
+2. Open **Routines**. Toggle **List / Calendar**. The list must
    show paused and finished schedules as well as active ones; changing views
    must not change a routine or start a run. Filter by Pepper and Miso and
    confirm that routine ownership stays correct.
@@ -150,6 +150,51 @@ snapshot (or a separately labelled `persisted` snapshot if Ctrl-C already stoppe
 the API), closes Vite and the exact child server, and removes only its temporary
 data. The server log and adjacent JSON remain. Close the dedicated browser tab;
 never kill processes by name or delete a broad temporary root.
+
+## Silent, conditional delivery
+
+Bot routines accept `delivery: "conditional"` in the API, `propose_routine`,
+and `propose_routine_action` updates. The editor calls this **Silent unless
+there is something to report** under **Report delivery**. Omission or
+`delivery: "always"` retains the existing report-every-run behavior. The mode
+is saved on the definition and copied into each run, so later edits cannot
+change an in-flight run's delivery.
+
+Each conditional execution receives the no-report protocol in its prompt.
+After a successful check with nothing to report, its entire final response
+must be exactly `{"routine_result":"no_report"}`. Surrounding whitespace is
+allowed. Code fences, explanations, other JSON properties, and arbitrary
+no-change prose are reports, not intentional silence. A recorded runtime or
+tool error, a denied permission, or a failed provider turn cannot become a
+successful no-report outcome.
+
+Conditional executions stay in their own hidden threads even when
+`features.routinesInConversation` is enabled. Queued, running, delegated-wait,
+and successful no-report states create no chat lifecycle card or completion
+notification. A busy-target deferral also stays in the run log. Run logs keep
+the successful receipt and identify its no-report outcome. Meaningful reports
+use the existing destination resolver, which defaults to the bot's oldest
+open conversation and never the unrelated conversation selected in the UI.
+Explicit user-chosen destinations and Cloud ownership restrictions remain.
+
+Errors retain the existing failure card, notification, and Chief **Team
+incidents** behavior. Real permission requests retain their approval card and
+notification, linked to the exact execution thread. Silent delivery does not
+grant permission or hide an unresolved approval. Room-goal routines reject
+conditional delivery. Webhook runs retain their existing behavior.
+
+The isolated server fixture exercises agent creation and updates, persistence,
+scheduled and manual no-report runs, meaningful reports, notifications, Chief
+incidents, joined-conversation isolation, and denied execution permissions.
+The renderer fixture saves conditional delivery through quick create and
+**More options**, restores it on edit, and switches it back to the default.
+These fixtures script the fake engine's response. They do not measure a real
+model's choice of a reporting condition or natural-language monitoring quality.
+
+```sh
+pnpm exec vitest run shared/routine-delivery.test.ts server/routines.test.ts server/routine-silent.e2e.test.ts server/routine-requests.test.ts server/drivers/agents-proxy.test.ts
+OMB_UI_E2E=1 pnpm exec vitest run scripts/testing/cron-routines-ui.e2e.test.ts
+```
 
 ## Automated regressions
 
